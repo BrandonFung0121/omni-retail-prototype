@@ -17,6 +17,10 @@ class TestApplyDiscount(unittest.TestCase):
         with self.assertRaises(ValueError):
             apply_discount(100, -10)
 
+    def test_over_100_percent_raises(self):
+        with self.assertRaises(ValueError):
+            apply_discount(100, 150)
+
 
 if __name__ == "__main__":
     unittest.main()
