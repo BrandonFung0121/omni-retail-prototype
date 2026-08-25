@@ -8,8 +8,11 @@ the KPIs an owner would otherwise have to piece together by hand.
 **Phase 1** (done): data models, a realistic synthetic dataset, and the
 core business-logic/service layer.
 **Phase 2** (done): a FastAPI JSON API over that service layer, and a
-dashboard that consumes it. Automation/alerting and AI-assisted
-analysis build on top of this in later phases.
+dashboard that consumes it.
+**Phase 3** (done): a rules-based automation/alerting layer (the
+Action Center) that detects business conditions worth a human's
+attention. AI-assisted investigation and recommendations build on top
+of this in a later phase.
 
 ## Project layout
 
@@ -31,7 +34,12 @@ omni_retail/
     dependencies.py       # DB session dependency
     schemas.py             # Pydantic response models
     routers/                # one router per resource, each a thin wrapper
-                             # around services/analytics.py
+                             # around services/analytics.py (or automation/)
+  automation/
+    models.py             # Alert dataclass, Severity/AlertType enums
+    config.py               # per-rule thresholds
+    rules.py                  # one detect_* function per business condition
+    engine.py                  # runs every rule, returns alerts sorted by severity
 dashboard/
   index.html, styles.css, app.js   # static JS dashboard (Chart.js via CDN,
                                      # fetches the JSON API, no build step)
@@ -41,6 +49,7 @@ scripts/
 tests/
   test_analytics.py     # business-logic tests against the seeded dataset
   test_api.py            # API tests (verify responses match the service layer)
+  test_automation.py      # rule threshold-crossing tests (deterministic, monkeypatched)
 ```
 
 ## Getting started
@@ -78,6 +87,32 @@ all-time figures. Every route is a thin wrapper around
 | `GET /api/website/traffic` | visitors, sessions, conversions, conversion rate |
 | `GET /api/website/traffic/trend` | daily traffic + conversion rate |
 | `GET /api/website/conversion-rate` | conversion rate |
+| `GET /api/alerts?severity=&type=` | currently-open alerts, most severe first |
+| `GET /api/alerts/summary` | alert counts by severity and by type |
+
+## Automation & alerting
+
+`omni_retail/automation/` detects business conditions worth a human's
+attention and turns each one into a structured `Alert` (type, severity,
+what happened, supporting data, a recommended action). Alerts are
+computed on demand from current data — there's no alerts table — the
+same way the dashboard's KPIs are computed on demand, which keeps this
+trivial for a future AI agent to call directly instead of only through
+the API.
+
+| Rule | Condition | Data source |
+|---|---|---|
+| Low stock / out of stock | stock ≤ / = 0 vs. reorder threshold | `inventory_status_counts`, `low_stock_products` |
+| Revenue drop | revenue down ≥15% (30d vs. prior 30d) | `revenue` |
+| Expense spike | category spend up ≥50%, this calendar month vs. last | `expenses_by_category` |
+| Traffic/conversion gap | visitors up ≥25% without conversion rate keeping pace | `website_traffic_summary` |
+| Order failure pattern | ≥8% of orders (30d) cancelled or refunded | `order_status_counts` (new) |
+| Customer win-back opportunity | top-15 customer by spend, 30+ days since last order | `high_value_customers`, `last_order_date` (new) |
+
+Thresholds live in `automation/config.py` and were calibrated against
+the seeded dataset. The dashboard's **Action Center** (top of the
+Overview page) lists every open alert with a severity filter; the
+sidebar badge shows the count of critical + warning alerts.
 
 ## Dashboard
 
@@ -130,7 +165,6 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 
 ## Next phases
 
-- REST API layer (FastAPI) exposing the services above.
-- Dashboard frontend.
-- Automation/alerting (low stock, sales drops, expense anomalies, at-risk customers, conversion problems).
-- AI-assisted natural-language queries and insight generation.
+- AI-assisted investigation: an agent that can call `automation/rules.py` or `/api/alerts`, explain *why* an alert fired, and recommend or execute a next step.
+- Natural-language business questions and AI-generated summaries.
+- Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
