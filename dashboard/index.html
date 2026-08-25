@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OMNI Retail — Business Overview</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">O</span>
+        <span class="brand-name">OMNI Retail</span>
+      </div>
+      <nav class="nav">
+        <a href="#overview" class="nav-link active">Overview</a>
+        <a href="#products" class="nav-link">Products</a>
+        <a href="#customers" class="nav-link">Customers</a>
+        <a href="#inventory" class="nav-link">Inventory</a>
+        <a href="#expenses" class="nav-link">Expenses</a>
+        <a href="#website" class="nav-link">Website</a>
+      </nav>
+      <div class="sidebar-footer">Prototype · synthetic data</div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1>Business Overview</h1>
+          <p class="subtitle" id="range-label">Last 30 days</p>
+        </div>
+        <div class="range-picker" role="group" aria-label="Date range">
+          <button data-days="7">7D</button>
+          <button data-days="30" class="active">30D</button>
+          <button data-days="90">90D</button>
+        </div>
+      </header>
+
+      <section id="overview" class="kpi-grid">
+        <article class="kpi-card" id="kpi-revenue">
+          <span class="kpi-label">Revenue</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+        <article class="kpi-card" id="kpi-orders">
+          <span class="kpi-label">Orders</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+        <article class="kpi-card" id="kpi-aov">
+          <span class="kpi-label">Avg. Order Value</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+        <article class="kpi-card" id="kpi-profit">
+          <span class="kpi-label">Estimated Profit</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+        <article class="kpi-card" id="kpi-visitors">
+          <span class="kpi-label">Website Visitors</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+        <article class="kpi-card" id="kpi-conversion">
+          <span class="kpi-label">Conversion Rate</span>
+          <span class="kpi-value">—</span>
+          <span class="kpi-delta"></span>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Revenue &amp; Orders Trend</h2>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="revenue-trend-chart"></canvas>
+        </div>
+      </section>
+
+      <section class="two-col">
+        <div class="panel" id="products">
+          <div class="panel-header">
+            <h2>Top Products</h2>
+            <span class="panel-hint">by revenue</span>
+          </div>
+          <table class="data-table" id="top-products-table">
+            <thead>
+              <tr><th>Product</th><th>Category</th><th>Units</th><th>Revenue</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="customers">
+          <div class="panel-header">
+            <h2>High-Value Customers</h2>
+            <span class="panel-hint">by total spend</span>
+          </div>
+          <table class="data-table" id="top-customers-table">
+            <thead>
+              <tr><th>Customer</th><th>Orders</th><th>AOV</th><th>Total Spent</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="two-col">
+        <div class="panel" id="inventory">
+          <div class="panel-header">
+            <h2>Inventory Alerts</h2>
+            <span class="panel-hint" id="inventory-summary"></span>
+          </div>
+          <ul class="alert-list" id="inventory-alerts"></ul>
+        </div>
+
+        <div class="panel" id="expenses">
+          <div class="panel-header">
+            <h2>Expense Breakdown</h2>
+            <span class="panel-hint" id="expense-total"></span>
+          </div>
+          <div class="expense-body">
+            <div class="chart-wrap chart-wrap-small">
+              <canvas id="expense-chart"></canvas>
+            </div>
+            <ul class="legend-list" id="expense-legend"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="website" class="panel">
+        <div class="panel-header">
+          <h2>Website Traffic &amp; Conversions</h2>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="traffic-trend-chart"></canvas>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

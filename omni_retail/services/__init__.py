@@ -1,5 +1,7 @@
 from omni_retail.services.analytics import (
     CustomerValue,
+    DailyRevenuePoint,
+    DailyTrafficPoint,
     ProductPerformance,
     TrafficSummary,
     average_order_value,
@@ -11,13 +13,17 @@ from omni_retail.services.analytics import (
     low_stock_products,
     order_count,
     revenue,
+    revenue_trend,
     top_products,
     total_expenses,
     website_traffic_summary,
+    website_traffic_trend,
 )
 
 __all__ = [
     "CustomerValue",
+    "DailyRevenuePoint",
+    "DailyTrafficPoint",
     "ProductPerformance",
     "TrafficSummary",
     "average_order_value",
@@ -29,7 +35,9 @@ __all__ = [
     "low_stock_products",
     "order_count",
     "revenue",
+    "revenue_trend",
     "top_products",
     "total_expenses",
     "website_traffic_summary",
+    "website_traffic_trend",
 ]
