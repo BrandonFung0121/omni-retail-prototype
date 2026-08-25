@@ -194,7 +194,7 @@ def _seed_orders(
 
             num_items = rng.randint(*basket_range)
             chosen_products = rng.choices(products, weights=product_weights, k=num_items)
-            for product in set(chosen_products):
+            for product in dict.fromkeys(chosen_products):
                 quantity = rng.randint(1, 3)
                 session.add(
                     OrderItem(
