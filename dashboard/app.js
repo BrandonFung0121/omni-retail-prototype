@@ -438,6 +438,105 @@ document.querySelectorAll("#alert-filter-row button").forEach((button) => {
   });
 });
 
+const INTENT_LABELS = {
+  revenue_explanation: "Revenue",
+  product_performance: "Products",
+  restock_priority: "Restock",
+  top_customers: "Customers",
+  churn_risk: "Churn Risk",
+  expense_anomalies: "Expenses",
+  traffic_conversion: "Traffic",
+  business_issues_summary: "Business Issues",
+  unknown: "Unclear",
+};
+
+async function loadAssistantExamples() {
+  const data = await fetchJSON("/api/assistant/examples");
+  const container = document.getElementById("assistant-examples");
+  container.innerHTML = data.questions
+    .map((q) => `<button type="button" class="assistant-chip">${escapeHTML(q)}</button>`)
+    .join("");
+  container.querySelectorAll(".assistant-chip").forEach((chip) => {
+    chip.addEventListener("click", () => submitQuestion(chip.textContent));
+  });
+}
+
+function renderQaLoadingCard(question) {
+  const thread = document.getElementById("assistant-thread");
+  const emptyState = thread.querySelector(".empty-state");
+  if (emptyState) emptyState.remove();
+
+  const card = document.createElement("div");
+  card.className = "qa-card";
+  card.innerHTML = `
+    <div class="qa-question">${escapeHTML(question)}</div>
+    <div class="qa-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span> Analyzing your data...</div>
+  `;
+  thread.prepend(card);
+  return card;
+}
+
+function renderQaResult(card, data) {
+  const intentLabel = INTENT_LABELS[data.intent] || data.intent;
+  const pillClass = data.confidence === "low" ? "intent-pill low" : "intent-pill";
+
+  const actionsHtml = data.recommended_actions.length
+    ? `<ul class="qa-actions">${data.recommended_actions
+        .map((a) => `<li>${ICONS.lightbulb}<span>${escapeHTML(a)}</span></li>`)
+        .join("")}</ul>`
+    : "";
+  const alertRefHtml = data.related_alert_ids.length
+    ? `<div class="qa-alert-ref">Related to ${data.related_alert_ids.length} item(s) in the Action Center.</div>`
+    : "";
+
+  card.innerHTML = `
+    <div class="qa-question"><span class="${pillClass}">${escapeHTML(intentLabel)}</span>${escapeHTML(data.question)}</div>
+    <p class="qa-answer">${escapeHTML(data.answer)}</p>
+    ${actionsHtml}
+    ${alertRefHtml}
+  `;
+}
+
+function renderQaError(card, question) {
+  card.innerHTML = `
+    <div class="qa-question">${escapeHTML(question)}</div>
+    <p class="qa-answer">Something went wrong reaching the assistant. Please try again.</p>
+  `;
+}
+
+async function submitQuestion(question) {
+  question = (question || "").trim();
+  if (!question) return;
+
+  const button = document.querySelector("#assistant-form button");
+  button.disabled = true;
+  const card = renderQaLoadingCard(question);
+
+  try {
+    const response = await fetch("/api/assistant/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!response.ok) throw new Error(`ask failed: ${response.status}`);
+    const data = await response.json();
+    renderQaResult(card, data);
+  } catch (err) {
+    console.error(err);
+    renderQaError(card, question);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("assistant-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const input = document.getElementById("assistant-input");
+  const question = input.value;
+  input.value = "";
+  submitQuestion(question);
+});
+
 async function loadDashboard() {
   const current = dateRange(state.rangeDays, 0);
   const previous = dateRange(state.rangeDays, state.rangeDays);
@@ -502,3 +601,4 @@ sections.forEach((section) => spyObserver.observe(section));
 
 loadDashboard().catch((err) => console.error(err));
 loadAlerts().catch((err) => console.error(err));
+loadAssistantExamples().catch((err) => console.error(err));

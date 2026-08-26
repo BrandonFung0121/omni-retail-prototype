@@ -22,7 +22,7 @@ from omni_retail.automation.models import Alert, AlertType, Severity
 from omni_retail.models import InventoryStatus, OrderStatus
 
 
-def _prior_period(start: date, end: date) -> tuple[date, date]:
+def prior_period(start: date, end: date) -> tuple[date, date]:
     span = (end - start).days + 1
     prior_end = start - timedelta(days=1)
     prior_start = prior_end - timedelta(days=span - 1)
@@ -96,7 +96,7 @@ def detect_out_of_stock(session: Session, **_kwargs) -> list[Alert]:
 def detect_revenue_drop(session: Session, today: Optional[date] = None, **_kwargs) -> list[Alert]:
     today = today or date.today()
     start = today - timedelta(days=config.REVENUE_PERIOD_DAYS - 1)
-    prev_start, prev_end = _prior_period(start, today)
+    prev_start, prev_end = prior_period(start, today)
 
     current = services.revenue(session, start, today)
     previous = services.revenue(session, prev_start, prev_end)
@@ -178,7 +178,7 @@ def detect_expense_spike(session: Session, today: Optional[date] = None, **_kwar
 def detect_traffic_conversion_gap(session: Session, today: Optional[date] = None, **_kwargs) -> list[Alert]:
     today = today or date.today()
     start = today - timedelta(days=config.TRAFFIC_PERIOD_DAYS - 1)
-    prev_start, prev_end = _prior_period(start, today)
+    prev_start, prev_end = prior_period(start, today)
 
     current = services.website_traffic_summary(session, start, today)
     previous = services.website_traffic_summary(session, prev_start, prev_end)

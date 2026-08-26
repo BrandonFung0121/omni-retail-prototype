@@ -152,3 +152,32 @@ def test_alerts_summary_endpoint(client):
     assert summary["warning"] == sum(1 for a in alerts if a["severity"] == "warning")
     assert summary["info"] == sum(1 for a in alerts if a["severity"] == "info")
     assert sum(summary["by_type"].values()) == summary["total"]
+
+
+def test_assistant_examples_endpoint(client):
+    response = client.get("/api/assistant/examples")
+    assert response.status_code == 200
+    assert len(response.json()["questions"]) > 0
+
+
+def test_assistant_ask_endpoint(client):
+    response = client.post("/api/assistant/ask", json={"question": "Which products should be restocked first?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "restock_priority"
+    assert body["confidence"] == "high"
+    assert body["answer"]
+    assert body["generated_by"] == "template"
+
+
+def test_assistant_ask_endpoint_handles_unrecognized_question(client):
+    response = client.post("/api/assistant/ask", json={"question": "asdkjfhaskjdfh"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["intent"] == "unknown"
+    assert body["confidence"] == "low"
+
+
+def test_assistant_ask_endpoint_rejects_missing_question(client):
+    response = client.post("/api/assistant/ask", json={})
+    assert response.status_code == 422

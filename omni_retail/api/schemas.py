@@ -133,3 +133,24 @@ class AlertSummaryResponse(BaseModel):
     warning: int
     info: int
     by_type: dict[str, int]
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+class AgentResponseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    question: str
+    intent: str
+    answer: str
+    confidence: str
+    supporting_metrics: dict[str, Any]
+    recommended_actions: list[str]
+    related_alert_ids: list[str]
+    generated_by: str
+
+
+class ExampleQuestionsResponse(BaseModel):
+    questions: list[str]

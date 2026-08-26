@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from omni_retail.api.routers import (
     alerts,
+    assistant,
     customers,
     expenses,
     inventory,
@@ -28,6 +29,7 @@ ROUTERS = (
     profit.router,
     website.router,
     alerts.router,
+    assistant.router,
 )
 
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent.parent / "dashboard"
