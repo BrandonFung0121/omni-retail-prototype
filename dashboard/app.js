@@ -831,10 +831,20 @@ document.querySelectorAll("#transactions-status-filter button").forEach((button)
   });
 });
 
+let txRequestSeq = 0;
+
 async function loadTransactions() {
+  // Guard against out-of-order responses: if the page's initial unfiltered
+  // load is still in flight when the user clicks a filter, that older
+  // request can resolve *after* the new filtered one and overwrite it with
+  // the wrong (unfiltered) rows. Only the most recently issued request is
+  // allowed to render.
+  const seq = ++txRequestSeq;
   const params = { limit: tx.limit, offset: tx.offset };
   if (tx.status) params.status = tx.status;
   const orders = await fetchJSON("/api/orders", params);
+  if (seq !== txRequestSeq) return;
+
   tx.lastCount = orders.length;
   renderTransactionsTable(orders);
   updateTransactionsPagination();
