@@ -4,9 +4,16 @@ from omni_retail.models.order import Order
 
 
 def test_seed_produces_orders_across_statuses(session):
-    statuses = {order.status for order in session.query(Order).all()}
-    assert OrderStatus.COMPLETED in statuses
-    assert OrderStatus.CANCELLED in statuses
+    from collections import Counter
+
+    counts = Counter(order.status for order in session.query(Order).all())
+    assert counts[OrderStatus.COMPLETED] > 0
+    assert counts[OrderStatus.CANCELLED] > 0
+    # REFUNDED and PENDING must be more than a token single example --
+    # the dashboard's status filter tabs need a demonstrable (if still
+    # small/realistic) number of each to filter, not just "exists".
+    assert counts[OrderStatus.REFUNDED] >= 3
+    assert counts[OrderStatus.PENDING] >= 3
 
 
 def test_revenue_is_positive(session):

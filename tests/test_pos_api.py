@@ -1,3 +1,6 @@
+import pytest
+
+
 def _healthy_product(client):
     products = client.get("/api/products").json()
     return next(p for p in products if p["status"] == "healthy")
@@ -114,3 +117,23 @@ def test_orders_endpoint_filters_by_status(fresh_client):
     body = response.json()
     assert len(body) > 0
     assert all(o["status"] == "cancelled" for o in body)
+
+
+@pytest.mark.parametrize("status", ["completed", "cancelled", "refunded", "pending"])
+def test_orders_endpoint_each_status_returns_only_that_status(fresh_client, status):
+    """The seeded dataset must contain a demonstrable (non-trivial) number
+    of every status -- this asserts both that filtering is correct AND
+    that there's actually something to filter for each tab."""
+    response = fresh_client.get("/api/orders", params={"status": status, "limit": 50})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) > 0, f"seeded data has no {status!r} orders to demonstrate the filter with"
+    assert all(o["status"] == status for o in body)
+
+
+def test_orders_endpoint_all_tab_includes_multiple_statuses(fresh_client):
+    """Sanity check that "All" (no status filter) isn't accidentally
+    scoped to a single status -- i.e. that a real mix exists to filter."""
+    response = fresh_client.get("/api/orders", params={"limit": 100})
+    statuses = {o["status"] for o in response.json()}
+    assert len(statuses) > 1

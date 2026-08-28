@@ -222,7 +222,12 @@ def _seasonal_order_date(rng: random.Random, join_date: date, today: date) -> da
 
 
 def _order_status(rng: random.Random, days_ago: int) -> OrderStatus:
-    if days_ago < 2:
+    # Orders placed in roughly the last two weeks may still be awaiting
+    # payment/fulfillment -- a wider window than "yesterday" is needed
+    # so PENDING shows up as a small but reliably non-trivial slice of
+    # the seeded data (a couple of days produced ~1 order total, too
+    # thin to demonstrate the dashboard's status filter).
+    if days_ago < 14:
         return _weighted_choice(
             rng,
             [OrderStatus.COMPLETED, OrderStatus.PENDING, OrderStatus.CANCELLED],
