@@ -181,3 +181,23 @@ def test_assistant_ask_endpoint_handles_unrecognized_question(client):
 def test_assistant_ask_endpoint_rejects_missing_question(client):
     response = client.post("/api/assistant/ask", json={})
     assert response.status_code == 422
+
+
+def test_dashboard_html_is_never_cached(client):
+    """The dashboard's cache-busting asset versions (styles.css?v=N,
+    app.js?v=N) only take effect if the browser re-fetches index.html
+    to see the new version number -- a cached HTML document can leave
+    every visitor stuck on old JS/CSS indefinitely, even after a fix
+    ships. Regression test for that."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+
+
+def test_static_assets_are_not_forced_no_cache(client):
+    """Only the HTML document should get the no-cache treatment --
+    versioned JS/CSS assets are safe (and desirable) to cache normally
+    since their URL already changes on update."""
+    response = client.get("/app.js")
+    assert response.status_code == 200
+    assert response.headers.get("cache-control") != "no-cache, no-store, must-revalidate"
