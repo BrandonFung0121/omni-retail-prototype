@@ -5,9 +5,19 @@ from sqlalchemy.orm import Session
 
 from omni_retail import services
 from omni_retail.api.dependencies import get_session
-from omni_retail.api.schemas import CustomerValueOut
+from omni_retail.api.schemas import CustomerSummaryOut, CustomerValueOut
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
+
+
+@router.get("/search", response_model=list[CustomerSummaryOut])
+def search_customers(
+    q: str = "",
+    limit: int = Query(10, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> list[CustomerSummaryOut]:
+    """Name/email typeahead, for the POS customer-selection step."""
+    return services.search_customers(session, q, limit=limit)
 
 
 @router.get("/high-value", response_model=list[CustomerValueOut])

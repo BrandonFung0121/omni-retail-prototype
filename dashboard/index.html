@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=5" />
 </head>
 <body>
   <div class="app-shell">
@@ -35,6 +35,16 @@
         <a href="#assistant" class="nav-link" data-nav="assistant">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 13.4 6.6 17.5 8l-4.1 1.4L12 13.5l-1.4-4.1L6.5 8l4.1-1.4L12 2.5Z"/><path d="M5 15.5 5.7 17.5 7.7 18.2 5.7 18.9 5 21 4.3 18.9 2.3 18.2 4.3 17.5 5 15.5Z"/><path d="M18.5 13.5 19.1 15.3 20.9 16 19.1 16.6 18.5 18.5 17.9 16.6 16.1 16 17.9 15.3 18.5 13.5Z"/></svg>
           <span>AI Assistant</span>
+        </a>
+
+        <span class="nav-section-label">Sales</span>
+        <a href="#pos" class="nav-link" data-nav="pos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9 5.5 4h13L20 9"/><path d="M4 9h16v9.5A1.5 1.5 0 0 1 18.5 20h-13A1.5 1.5 0 0 1 4 18.5V9Z"/><path d="M9 13a3 3 0 0 0 6 0"/></svg>
+          <span>Point of Sale</span>
+        </a>
+        <a href="#transactions" class="nav-link" data-nav="transactions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v17l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2V3Z"/><path d="M9 8h6M9 12h6"/></svg>
+          <span>Transactions</span>
         </a>
 
         <span class="nav-section-label">Reports</span>
@@ -129,6 +139,104 @@
           <p class="empty-state">Ask a question above, or click one of the examples.</p>
         </div>
       </section>
+
+      <section id="pos" class="panel pos-panel">
+        <div class="panel-header">
+          <div class="panel-heading">
+            <h2>Point of Sale</h2>
+            <p class="panel-subtitle">Ring up a sale. Completing it updates inventory, customer history, and every report immediately.</p>
+          </div>
+        </div>
+
+        <div class="pos-layout">
+          <div class="pos-catalog">
+            <input type="text" id="pos-product-search" class="pos-search-input" placeholder="Search products..." autocomplete="off" />
+            <div class="pos-product-grid" id="pos-product-grid"></div>
+          </div>
+
+          <div class="pos-cart">
+            <h3 class="pos-cart-title">Cart</h3>
+            <ul class="pos-cart-list" id="pos-cart-list">
+              <li class="empty-state">Cart is empty. Click a product to add it.</li>
+            </ul>
+
+            <div class="pos-summary">
+              <div class="pos-summary-row"><span>Subtotal</span><span id="pos-subtotal">$0.00</span></div>
+              <div class="pos-discount-row">
+                <select id="pos-discount-type" class="pos-select">
+                  <option value="">No discount</option>
+                  <option value="percent">% off</option>
+                  <option value="amount">$ off</option>
+                </select>
+                <input type="number" id="pos-discount-value" min="0" step="0.01" placeholder="0" disabled />
+              </div>
+              <div class="pos-summary-row"><span>Discount</span><span id="pos-discount-display">-$0.00</span></div>
+              <div class="pos-summary-row pos-summary-total"><span>Total</span><span id="pos-total">$0.00</span></div>
+            </div>
+
+            <div class="pos-field-block">
+              <label class="pos-field-label">Customer</label>
+              <div class="pos-customer-row">
+                <input type="text" id="pos-customer-search" placeholder="Search by name or email..." autocomplete="off" />
+                <button type="button" id="pos-guest-toggle" class="pos-guest-toggle active">Guest</button>
+              </div>
+              <div id="pos-customer-results" class="pos-customer-results"></div>
+              <div id="pos-selected-customer" class="pos-selected-chip"></div>
+            </div>
+
+            <div class="pos-field-block">
+              <label class="pos-field-label">Payment Method</label>
+              <select id="pos-payment-method" class="pos-select pos-select-full">
+                <option value="cash">Cash</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="debit_card">Debit Card</option>
+                <option value="digital_wallet">Digital Wallet</option>
+                <option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+
+            <button type="button" id="pos-checkout-btn" class="pos-checkout-btn">Complete Sale</button>
+            <p class="pos-error" id="pos-error"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="transactions" class="panel">
+        <div class="panel-header">
+          <div class="panel-heading">
+            <h2>Transactions</h2>
+            <p class="panel-subtitle">Recently completed sales, newest first</p>
+          </div>
+          <div class="alert-filter-row" role="group" aria-label="Filter by status" id="transactions-status-filter">
+            <button data-status="" class="active">All</button>
+            <button data-status="completed">Completed</button>
+            <button data-status="cancelled">Cancelled</button>
+            <button data-status="refunded">Refunded</button>
+            <button data-status="pending">Pending</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="transactions-table">
+            <thead>
+              <tr><th>Order</th><th>Date</th><th>Customer</th><th>Channel</th><th class="num">Items</th><th class="num">Total</th><th>Payment</th><th>Status</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="transactions-pagination">
+          <button type="button" id="transactions-prev">&larr; Newer</button>
+          <span id="transactions-page-label"></span>
+          <button type="button" id="transactions-next">Older &rarr;</button>
+        </div>
+      </section>
+
+      <div class="pos-receipt-overlay" id="pos-receipt-overlay">
+        <div class="pos-receipt-card" id="pos-receipt-card"></div>
+      </div>
+
+      <div class="pos-receipt-overlay" id="order-detail-overlay">
+        <div class="pos-receipt-card" id="order-detail-card"></div>
+      </div>
 
       <section id="overview" class="kpi-grid">
         <article class="kpi-card" id="kpi-revenue">
@@ -287,6 +395,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

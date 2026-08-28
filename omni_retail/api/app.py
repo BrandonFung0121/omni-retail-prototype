@@ -12,6 +12,7 @@ from omni_retail.api.routers import (
     inventory,
     kpis,
     orders,
+    pos,
     products,
     profit,
     revenue,
@@ -30,6 +31,7 @@ ROUTERS = (
     website.router,
     alerts.router,
     assistant.router,
+    pos.router,
 )
 
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent.parent / "dashboard"

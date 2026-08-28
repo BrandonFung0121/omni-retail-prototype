@@ -537,6 +537,398 @@ document.getElementById("assistant-form").addEventListener("submit", (event) => 
   submitQuestion(question);
 });
 
+const POS_ICONS = {
+  remove: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
+};
+
+const pos = {
+  products: [],
+  cart: [], // { product_id, name, selling_price, quantity, current_stock }
+  customer: null, // { customer_id, name, email } | null (guest)
+};
+
+const tx = { status: "", limit: 20, offset: 0, lastCount: 0 };
+
+function posSubtotal() {
+  return pos.cart.reduce((sum, item) => sum + item.selling_price * item.quantity, 0);
+}
+
+function posDiscountPreview(subtotal) {
+  const type = document.getElementById("pos-discount-type").value;
+  const raw = parseFloat(document.getElementById("pos-discount-value").value);
+  const value = Number.isFinite(raw) ? raw : 0;
+  if (!type || value <= 0) return 0;
+  if (type === "percent") return subtotal * Math.min(Math.max(value, 0), 100) / 100;
+  return Math.min(Math.max(value, 0), subtotal);
+}
+
+async function loadPosProducts() {
+  pos.products = await fetchJSON("/api/products");
+  renderPosProductGrid();
+}
+
+function renderPosProductGrid() {
+  const query = document.getElementById("pos-product-search").value.trim().toLowerCase();
+  const grid = document.getElementById("pos-product-grid");
+  const filtered = query
+    ? pos.products.filter((p) => p.name.toLowerCase().includes(query) || p.category.toLowerCase().includes(query))
+    : pos.products;
+
+  grid.innerHTML =
+    filtered
+      .map((p) => {
+        const outOfStock = p.current_stock <= 0;
+        const stockLabel = outOfStock ? "Out of stock" : `${p.current_stock} in stock`;
+        return `
+        <button type="button" class="pos-product-card" data-product-id="${p.product_id}" ${outOfStock ? "disabled" : ""}>
+          <span class="pos-product-name">${escapeHTML(p.name)}</span>
+          <span class="pos-product-meta">
+            <span class="pos-product-price">${formatCurrency(p.selling_price)}</span>
+            <span class="pos-product-stock ${p.status}">${stockLabel}</span>
+          </span>
+        </button>`;
+      })
+      .join("") || `<p class="empty-state">No products match "${escapeHTML(query)}".</p>`;
+
+  grid.querySelectorAll(".pos-product-card").forEach((card) => {
+    card.addEventListener("click", () => addToCart(Number(card.dataset.productId)));
+  });
+}
+
+function addToCart(productId) {
+  const product = pos.products.find((p) => p.product_id === productId);
+  if (!product) return;
+
+  const existing = pos.cart.find((item) => item.product_id === productId);
+  if (existing) {
+    if (existing.quantity < product.current_stock) existing.quantity += 1;
+  } else if (product.current_stock > 0) {
+    pos.cart.push({
+      product_id: product.product_id,
+      name: product.name,
+      selling_price: product.selling_price,
+      quantity: 1,
+      current_stock: product.current_stock,
+    });
+  }
+  renderCart();
+}
+
+function changeCartQuantity(productId, delta) {
+  const item = pos.cart.find((i) => i.product_id === productId);
+  if (!item) return;
+  item.quantity = Math.min(item.current_stock, Math.max(0, item.quantity + delta));
+  pos.cart = pos.cart.filter((i) => i.quantity > 0);
+  renderCart();
+}
+
+function removeFromCart(productId) {
+  pos.cart = pos.cart.filter((i) => i.product_id !== productId);
+  renderCart();
+}
+
+function renderCart() {
+  const list = document.getElementById("pos-cart-list");
+  list.innerHTML =
+    pos.cart
+      .map(
+        (item) => `
+      <li class="pos-cart-item">
+        <div class="pos-cart-item-info">
+          <div class="pos-cart-item-name">${escapeHTML(item.name)}</div>
+          <div class="pos-cart-item-price">${formatCurrency(item.selling_price)} each</div>
+        </div>
+        <div class="pos-qty-control">
+          <button type="button" data-action="dec" data-product-id="${item.product_id}">&minus;</button>
+          <span class="pos-qty-value">${item.quantity}</span>
+          <button type="button" data-action="inc" data-product-id="${item.product_id}">+</button>
+        </div>
+        <button type="button" class="pos-cart-remove" data-action="remove" data-product-id="${item.product_id}">${POS_ICONS.remove}</button>
+      </li>`
+      )
+      .join("") || `<li class="empty-state">Cart is empty. Click a product to add it.</li>`;
+
+  list.querySelectorAll("button[data-action]").forEach((btn) => {
+    const productId = Number(btn.dataset.productId);
+    btn.addEventListener("click", () => {
+      if (btn.dataset.action === "inc") changeCartQuantity(productId, 1);
+      else if (btn.dataset.action === "dec") changeCartQuantity(productId, -1);
+      else removeFromCart(productId);
+    });
+  });
+
+  updatePosSummary();
+}
+
+function updatePosSummary() {
+  const subtotal = posSubtotal();
+  const discount = posDiscountPreview(subtotal);
+  document.getElementById("pos-subtotal").textContent = formatCurrency(subtotal);
+  document.getElementById("pos-discount-display").textContent = `-${formatCurrency(discount)}`;
+  document.getElementById("pos-total").textContent = formatCurrency(Math.max(0, subtotal - discount));
+}
+
+document.getElementById("pos-product-search").addEventListener("input", renderPosProductGrid);
+document.getElementById("pos-discount-type").addEventListener("change", (e) => {
+  document.getElementById("pos-discount-value").disabled = !e.target.value;
+  if (!e.target.value) document.getElementById("pos-discount-value").value = "";
+  updatePosSummary();
+});
+document.getElementById("pos-discount-value").addEventListener("input", updatePosSummary);
+
+function setSelectedCustomer(customer) {
+  pos.customer = customer;
+  const guestBtn = document.getElementById("pos-guest-toggle");
+  const chip = document.getElementById("pos-selected-customer");
+  const searchInput = document.getElementById("pos-customer-search");
+
+  if (customer) {
+    guestBtn.classList.remove("active");
+    chip.innerHTML = `${escapeHTML(customer.name)} <button type="button" id="pos-clear-customer">&times;</button>`;
+    chip.querySelector("#pos-clear-customer").addEventListener("click", () => {
+      searchInput.value = "";
+      setSelectedCustomer(null);
+    });
+    document.getElementById("pos-customer-results").innerHTML = "";
+  } else {
+    guestBtn.classList.add("active");
+    chip.innerHTML = "";
+  }
+}
+
+let customerSearchTimer = null;
+document.getElementById("pos-customer-search").addEventListener("input", (e) => {
+  clearTimeout(customerSearchTimer);
+  const q = e.target.value.trim();
+  const results = document.getElementById("pos-customer-results");
+  if (!q) {
+    results.innerHTML = "";
+    return;
+  }
+  customerSearchTimer = setTimeout(async () => {
+    const customers = await fetchJSON("/api/customers/search", { q, limit: 8 });
+    results.innerHTML = customers
+      .map((c) => `<button type="button" class="pos-customer-result" data-id="${c.customer_id}">${escapeHTML(c.name)} &middot; ${escapeHTML(c.email)}</button>`)
+      .join("");
+    results.querySelectorAll(".pos-customer-result").forEach((btn) => {
+      const customer = customers.find((c) => String(c.customer_id) === btn.dataset.id);
+      btn.addEventListener("click", () => setSelectedCustomer(customer));
+    });
+  }, 250);
+});
+
+document.getElementById("pos-guest-toggle").addEventListener("click", () => {
+  document.getElementById("pos-customer-search").value = "";
+  document.getElementById("pos-customer-results").innerHTML = "";
+  setSelectedCustomer(null);
+});
+
+function resetPosForm() {
+  pos.cart = [];
+  pos.customer = null;
+  document.getElementById("pos-discount-type").value = "";
+  document.getElementById("pos-discount-value").value = "";
+  document.getElementById("pos-discount-value").disabled = true;
+  document.getElementById("pos-payment-method").value = "cash";
+  document.getElementById("pos-customer-search").value = "";
+  document.getElementById("pos-customer-results").innerHTML = "";
+  document.getElementById("pos-error").textContent = "";
+  setSelectedCustomer(null);
+  renderCart();
+}
+
+function showReceipt(receipt) {
+  const card = document.getElementById("pos-receipt-card");
+  const linesHtml = receipt.lines
+    .map(
+      (l) => `<div class="pos-receipt-line"><span class="name">${escapeHTML(l.product_name)} &times;${l.quantity}</span><span class="amount">${formatCurrency(l.line_total)}</span></div>`
+    )
+    .join("");
+
+  card.innerHTML = `
+    <div class="pos-receipt-header">
+      <div class="pos-receipt-check">${POS_ICONS.check}</div>
+      <h3>Sale complete</h3>
+      <p>Order #${receipt.order_id}</p>
+    </div>
+    <div class="pos-receipt-lines">${linesHtml}</div>
+    <div class="pos-receipt-totals">
+      <div class="pos-summary-row"><span>Subtotal</span><span>${formatCurrency(receipt.subtotal)}</span></div>
+      <div class="pos-summary-row"><span>Discount</span><span>-${formatCurrency(receipt.discount_total)}</span></div>
+      <div class="pos-summary-row pos-summary-total"><span>Total</span><span>${formatCurrency(receipt.total)}</span></div>
+    </div>
+    <div class="pos-receipt-meta">
+      <span>Customer: ${escapeHTML(receipt.customer_name)}</span>
+      <span>Payment: ${escapeHTML(receipt.payment_method.replaceAll("_", " "))} &middot; ${escapeHTML(receipt.payment_status)}</span>
+    </div>
+    <div class="pos-receipt-actions">
+      <button type="button" class="secondary" id="receipt-close-btn">Close</button>
+      <button type="button" class="primary" id="receipt-new-sale-btn">New Sale</button>
+    </div>
+  `;
+  document.getElementById("pos-receipt-overlay").classList.add("open");
+  document.getElementById("receipt-close-btn").addEventListener("click", closeReceiptOverlay);
+  document.getElementById("receipt-new-sale-btn").addEventListener("click", closeReceiptOverlay);
+}
+
+function closeReceiptOverlay() {
+  document.getElementById("pos-receipt-overlay").classList.remove("open");
+}
+
+document.getElementById("pos-checkout-btn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("pos-error");
+  errorEl.textContent = "";
+
+  if (pos.cart.length === 0) {
+    errorEl.textContent = "Cart is empty -- add at least one item.";
+    return;
+  }
+
+  const discountType = document.getElementById("pos-discount-type").value;
+  const button = document.getElementById("pos-checkout-btn");
+  button.disabled = true;
+
+  const payload = {
+    items: pos.cart.map((item) => ({ product_id: item.product_id, quantity: item.quantity })),
+    payment_method: document.getElementById("pos-payment-method").value,
+    customer_id: pos.customer ? pos.customer.customer_id : null,
+    channel: "in_store",
+    discount_type: discountType || null,
+    discount_value: discountType ? parseFloat(document.getElementById("pos-discount-value").value) || 0 : 0,
+  };
+
+  try {
+    const response = await fetch("/api/pos/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      errorEl.textContent = data.detail || "Checkout failed. Please try again.";
+      return;
+    }
+
+    showReceipt(data);
+    resetPosForm();
+    await Promise.all([loadPosProducts(), loadTransactions(), loadDashboard(), loadAlerts()]);
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "Couldn't reach the server. Please try again.";
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelectorAll("#transactions-status-filter button").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll("#transactions-status-filter button").forEach((b) => b.classList.remove("active"));
+    button.classList.add("active");
+    tx.status = button.dataset.status;
+    tx.offset = 0;
+    loadTransactions().catch((err) => console.error(err));
+  });
+});
+
+async function loadTransactions() {
+  const params = { limit: tx.limit, offset: tx.offset };
+  if (tx.status) params.status = tx.status;
+  const orders = await fetchJSON("/api/orders", params);
+  tx.lastCount = orders.length;
+  renderTransactionsTable(orders);
+  updateTransactionsPagination();
+}
+
+function renderTransactionsTable(orders) {
+  const tbody = document.querySelector("#transactions-table tbody");
+  tbody.innerHTML =
+    orders
+      .map(
+        (o) => `
+      <tr class="clickable-row" data-order-id="${o.order_id}">
+        <td class="num">#${o.order_id}</td>
+        <td>${escapeHTML(o.order_datetime.replace("T", " ").slice(0, 16))}</td>
+        <td>${escapeHTML(o.customer_name)}</td>
+        <td><span class="category-pill">${escapeHTML(o.channel.replaceAll("_", " "))}</span></td>
+        <td class="num">${formatNumber(o.item_count)}</td>
+        <td class="num">${formatCurrency(o.total)}</td>
+        <td>${escapeHTML((o.payment_method || "-").replaceAll("_", " "))}</td>
+        <td><span class="badge status-${o.status}">${escapeHTML(o.status)}</span></td>
+      </tr>`
+      )
+      .join("") || `<tr><td colspan="8" class="empty-state">No transactions in this view.</td></tr>`;
+
+  tbody.querySelectorAll("tr.clickable-row").forEach((row) => {
+    row.addEventListener("click", () => showOrderDetail(Number(row.dataset.orderId)));
+  });
+}
+
+function updateTransactionsPagination() {
+  document.getElementById("transactions-prev").disabled = tx.offset === 0;
+  document.getElementById("transactions-next").disabled = tx.lastCount < tx.limit;
+  const page = Math.floor(tx.offset / tx.limit) + 1;
+  document.getElementById("transactions-page-label").textContent = `Page ${page}`;
+}
+
+document.getElementById("transactions-prev").addEventListener("click", () => {
+  tx.offset = Math.max(0, tx.offset - tx.limit);
+  loadTransactions().catch((err) => console.error(err));
+});
+document.getElementById("transactions-next").addEventListener("click", () => {
+  tx.offset += tx.limit;
+  loadTransactions().catch((err) => console.error(err));
+});
+
+async function showOrderDetail(orderId) {
+  const card = document.getElementById("order-detail-card");
+  card.innerHTML = `<div class="qa-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span> Loading order...</div>`;
+  document.getElementById("order-detail-overlay").classList.add("open");
+
+  try {
+    const order = await fetchJSON(`/api/orders/${orderId}`);
+    const linesHtml = order.lines
+      .map(
+        (l) => `<div class="pos-receipt-line"><span class="name">${escapeHTML(l.product_name)} &times;${l.quantity}</span><span class="amount">${formatCurrency(l.line_total)}</span></div>`
+      )
+      .join("");
+    card.innerHTML = `
+      <div class="pos-receipt-header">
+        <h3>Order #${order.order_id}</h3>
+        <p>${escapeHTML(order.order_datetime.replace("T", " ").slice(0, 16))} &middot; ${escapeHTML(order.customer_name)}</p>
+      </div>
+      <div class="pos-receipt-lines">${linesHtml}</div>
+      <div class="pos-receipt-totals">
+        <div class="pos-summary-row"><span>Subtotal</span><span>${formatCurrency(order.subtotal)}</span></div>
+        <div class="pos-summary-row"><span>Discount</span><span>-${formatCurrency(order.discount_total)}</span></div>
+        <div class="pos-summary-row pos-summary-total"><span>Total</span><span>${formatCurrency(order.total)}</span></div>
+      </div>
+      <div class="pos-receipt-meta">
+        <span>Status: ${escapeHTML(order.status)}</span>
+        <span>Channel: ${escapeHTML(order.channel.replaceAll("_", " "))}</span>
+        <span>Payment: ${escapeHTML((order.payment_method || "-").replaceAll("_", " "))} &middot; ${escapeHTML(order.payment_status || "-")}</span>
+      </div>
+      <div class="pos-receipt-actions">
+        <button type="button" class="primary" id="order-detail-close-btn">Close</button>
+      </div>
+    `;
+    document.getElementById("order-detail-close-btn").addEventListener("click", closeOrderDetailOverlay);
+  } catch (err) {
+    console.error(err);
+    card.innerHTML = `<p class="empty-state">Couldn't load that order.</p>`;
+  }
+}
+
+function closeOrderDetailOverlay() {
+  document.getElementById("order-detail-overlay").classList.remove("open");
+}
+
+[document.getElementById("pos-receipt-overlay"), document.getElementById("order-detail-overlay")].forEach((overlay) => {
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.remove("open");
+  });
+});
+
 async function loadDashboard() {
   const current = dateRange(state.rangeDays, 0);
   const previous = dateRange(state.rangeDays, state.rangeDays);
@@ -602,3 +994,5 @@ sections.forEach((section) => spyObserver.observe(section));
 loadDashboard().catch((err) => console.error(err));
 loadAlerts().catch((err) => console.error(err));
 loadAssistantExamples().catch((err) => console.error(err));
+loadPosProducts().catch((err) => console.error(err));
+loadTransactions().catch((err) => console.error(err));

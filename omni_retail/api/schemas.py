@@ -154,3 +154,94 @@ class AgentResponseOut(BaseModel):
 
 class ExampleQuestionsResponse(BaseModel):
     questions: list[str]
+
+
+class ProductCatalogEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: int
+    name: str
+    category: str
+    selling_price: float
+    current_stock: int
+    reorder_threshold: int
+    status: str
+
+
+class CustomerSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_id: int
+    name: str
+    email: str
+
+
+class ReceiptLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+
+class OrderSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: int
+    order_datetime: datetime
+    customer_name: str
+    status: str
+    channel: str
+    item_count: int
+    total: float
+    payment_method: str | None
+    payment_status: str | None
+
+
+class OrderDetailOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: int
+    order_datetime: datetime
+    customer_id: int | None
+    customer_name: str
+    status: str
+    channel: str
+    lines: list[ReceiptLineOut]
+    subtotal: float
+    discount_total: float
+    total: float
+    payment_method: str | None
+    payment_status: str | None
+
+
+class CartItemIn(BaseModel):
+    product_id: int
+    quantity: int
+
+
+class CheckoutRequest(BaseModel):
+    items: list[CartItemIn]
+    payment_method: str
+    customer_id: int | None = None
+    channel: str = "in_store"
+    discount_type: str | None = None
+    discount_value: float = 0.0
+
+
+class SaleReceiptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    order_id: int
+    order_datetime: datetime
+    customer_id: int | None
+    customer_name: str
+    channel: str
+    lines: list[ReceiptLineOut]
+    subtotal: float
+    discount_total: float
+    total: float
+    payment_method: str
+    payment_status: str

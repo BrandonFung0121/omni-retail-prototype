@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -23,12 +24,16 @@ class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), nullable=True)
     order_datetime: Mapped[datetime] = mapped_column(DateTime)
     status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus))
     channel: Mapped[SalesChannel] = mapped_column(Enum(SalesChannel))
+    # Dollar amount discounted off the pre-discount subtotal. Informational --
+    # each OrderItem.unit_price already reflects the price actually charged
+    # (post-discount), so revenue/AOV/etc. need no special-casing for this.
+    discount_total: Mapped[float] = mapped_column(Numeric(10, 2), default=0)
 
-    customer: Mapped["Customer"] = relationship(back_populates="orders")
+    customer: Mapped[Optional["Customer"]] = relationship(back_populates="orders")
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
     )

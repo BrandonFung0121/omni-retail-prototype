@@ -15,6 +15,11 @@ attention.
 **Phase 4** (done): an AI Business Analyst agent that answers
 natural-language questions, grounded in the same analytics/alerting
 data -- read-only, no data modification or external actions yet.
+**Phase 5** (done): a point-of-sale/transaction layer -- the first part
+of the system that writes data. Completing a sale creates the order,
+decrements inventory, and is immediately reflected everywhere else
+(dashboard, alerts, AI assistant), since none of those recompute or
+cache -- they just read current state.
 
 ## Project layout
 
@@ -47,6 +52,9 @@ omni_retail/
     retrieval.py             # one gather_* "tool" per intent, calling services/automation
     synthesis.py               # evidence -> natural-language answer (pluggable; template today)
     agent.py                    # classify -> retrieve -> synthesize, with graceful fallbacks
+  transactions/
+    models.py             # Cart/CartItem/SaleReceipt dataclasses + TransactionError hierarchy
+    service.py               # complete_sale() -- the only place anything is written
 dashboard/
   index.html, styles.css, app.js   # static JS dashboard (Chart.js via CDN,
                                      # fetches the JSON API, no build step)
@@ -58,6 +66,8 @@ tests/
   test_api.py            # API tests (verify responses match the service layer)
   test_automation.py      # rule threshold-crossing tests (deterministic, monkeypatched)
   test_ai_agent.py         # intent classification, grounded-answer, and error-handling tests
+  test_transactions.py      # complete_sale() unit tests, each isolated in its own in-memory DB
+  test_pos_api.py            # POS/orders API tests, same isolation
 ```
 
 ## Getting started
@@ -99,6 +109,49 @@ all-time figures. Every route is a thin wrapper around
 | `GET /api/alerts/summary` | alert counts by severity and by type |
 | `POST /api/assistant/ask` | ask the AI Business Analyst a question (JSON body: `{"question": "..."}`) |
 | `GET /api/assistant/examples` | example questions the agent can currently answer |
+| `GET /api/products` | full catalog with live stock -- for the POS product picker |
+| `GET /api/customers/search?q=` | name/email typeahead -- for the POS customer picker |
+| `POST /api/pos/checkout` | complete a sale (the only write endpoint in the API) |
+| `GET /api/orders?status=&limit=&offset=` | paginated transaction list |
+| `GET /api/orders/{id}` | full line-item detail for one order (a receipt) |
+
+## Point of sale & transactions
+
+`omni_retail/transactions/` is the only part of this codebase that
+writes to the database. `complete_sale(session, cart)` is a pure
+function -- session and a `Cart` in, a `SaleReceipt` out, or a specific
+`TransactionError` raised -- with no knowledge of HTTP, the POS UI, or
+any particular front end. The POS API (`/api/pos/checkout`) is a thin
+wrapper around it; a future customer storefront should build a `Cart`
+and call `complete_sale()` the same way rather than reimplementing any
+part of checkout.
+
+Every validation check (empty cart, non-positive quantity, unknown
+product, insufficient stock, invalid discount, unknown customer,
+invalid payment method) runs **before** the first database write, so a
+rejected sale is guaranteed to leave the database untouched. A
+successful sale creates the `Order` and `OrderItem`s, creates the
+`Payment`, and decrements `Inventory.current_stock` -- all in one
+transaction.
+
+**Discounts:** a cart discount (percent or a fixed dollar amount) is
+pro-rated across line items and baked directly into each
+`OrderItem.unit_price` (the price actually charged). `Order.discount_total`
+records the dollar amount for receipts/audits. This means
+`services/analytics.py` needed **zero changes** for discounts --
+revenue, AOV, and everything else already sum `quantity × unit_price`,
+which is already the post-discount price.
+
+**"Customer purchase history" needed no new code.** Nothing in this
+app stores customer stats as counters -- `high_value_customers()`,
+`last_order_date()`, etc. all compute from `Order`/`OrderItem` on every
+call. The moment a sale is completed, every dashboard number, every
+alert, and the AI agent's next answer are already correct.
+
+**Guest checkout:** `Order.customer_id` is nullable. A `None` means a
+guest sale; `high_value_customers()` already inner-joins `Order` to
+`Customer`, so guest orders simply don't appear in customer rankings,
+which is correct.
 
 ## Automation & alerting
 
@@ -163,10 +216,15 @@ workflows would extend this package rather than restructure it.
 ## Dashboard
 
 A single-page dashboard (`dashboard/`) served by the same FastAPI app:
-an Action Center, an AI Business Analyst chat panel, KPI cards with
+an Action Center, an AI Business Analyst chat panel, a Point of Sale
+screen (product grid, cart, discount, guest-or-existing customer,
+payment method, receipt confirmation), a Transactions list with
+status filtering and a receipt-detail view, KPI cards with
 period-over-period deltas, a revenue/orders trend chart, top products
 and high-value customer tables, low/out-of-stock inventory alerts, an
 expense breakdown donut, and a website traffic/conversion trend chart.
+Completing a sale on the POS screen immediately refreshes the KPIs,
+Action Center, and product/transaction lists.
 A 7D/30D/90D range picker re-fetches everything for the selected
 window (the Action Center and AI Assistant use their own
 per-rule/per-question periods, independent of that picker). It's plain
@@ -218,3 +276,6 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 - Agent actions with human approval (e.g. drafting a reorder, a win-back email) -- still no unsupervised writes.
 - Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
 - Multi-agent workflows and external integrations (e.g. actually sending the win-back email, filing the reorder).
+- A customer-facing storefront built on `transactions.complete_sale()` -- same checkout logic, different front end (channel would be `online` instead of `in_store`).
+- Refunds/cancellations as a second write path alongside `complete_sale()`.
+- Receipt printing/emailing, and barcode-scanner input for the POS product picker.
