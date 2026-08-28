@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OMNI Retail Shop</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23c2542c'/%3E%3Ctext x='16' y='22' font-family='Georgia' font-size='18' font-weight='700' fill='white' text-anchor='middle'%3EO%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css?v=1" />
+</head>
+<body>
+  <div class="shop-shell">
+    <header class="shop-header">
+      <div class="shop-header-inner">
+        <a href="#/" class="shop-brand">
+          <span class="shop-brand-mark">O</span>
+          <span class="shop-brand-name">OMNI Retail</span>
+        </a>
+
+        <nav class="shop-nav">
+          <a href="#/" data-route="/">Home</a>
+          <a href="#/products" data-route="/products">Shop</a>
+        </nav>
+
+        <div class="shop-header-search">
+          <input type="text" id="header-search" placeholder="Search products..." autocomplete="off" />
+        </div>
+
+        <div class="shop-header-actions">
+          <a href="#/orders" class="shop-icon-link" id="nav-orders-link" title="My Orders">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v17l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2V3Z"/><path d="M9 8h6M9 12h6"/></svg>
+          </a>
+          <a href="#/cart" class="shop-icon-link shop-cart-link" title="Cart">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.2 12.4A2 2 0 0 0 9.2 18h8a2 2 0 0 0 2-1.6L21 7H6"/><circle cx="9.5" cy="21.5" r="1.3"/><circle cx="17.5" cy="21.5" r="1.3"/></svg>
+            <span class="cart-count" id="cart-count">0</span>
+          </a>
+          <div class="shop-account" id="shop-account"></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="shop-main">
+
+      <!-- HOME -->
+      <section class="view" id="view-home" data-view="/">
+        <div class="hero">
+          <div class="hero-copy">
+            <p class="hero-eyebrow">New season, real prices</p>
+            <h1>Everything your home &amp; life needs, in one place.</h1>
+            <p class="hero-sub">Browse our full catalogue &mdash; the same inventory your local store sees, updated live.</p>
+            <a href="#/products" class="btn btn-primary btn-lg">Shop the catalogue</a>
+          </div>
+        </div>
+
+        <div class="section-heading">
+          <h2>Popular right now</h2>
+          <a href="#/products" class="link-more">View all &rarr;</a>
+        </div>
+        <div class="product-grid" id="home-featured"></div>
+      </section>
+
+      <!-- CATALOGUE -->
+      <section class="view" id="view-products" data-view="/products">
+        <div class="catalogue-toolbar">
+          <h1>Shop</h1>
+          <div class="catalogue-filters">
+            <input type="text" id="catalogue-search" placeholder="Search..." autocomplete="off" />
+            <select id="catalogue-category">
+              <option value="">All categories</option>
+            </select>
+            <select id="catalogue-sort">
+              <option value="name">Name (A-Z)</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="product-grid" id="catalogue-grid"></div>
+      </section>
+
+      <!-- PRODUCT DETAIL -->
+      <section class="view" id="view-product" data-view="/product">
+        <a href="#/products" class="link-back">&larr; Back to shop</a>
+        <div class="product-detail" id="product-detail-body"></div>
+      </section>
+
+      <!-- CART -->
+      <section class="view" id="view-cart" data-view="/cart">
+        <h1>Your Cart</h1>
+        <div class="cart-layout">
+          <ul class="cart-list" id="cart-list"></ul>
+          <aside class="cart-summary-card">
+            <h2>Order Summary</h2>
+            <div class="summary-row"><span>Subtotal</span><span id="cart-subtotal">$0.00</span></div>
+            <p class="summary-note">Shipping &amp; discounts calculated at checkout.</p>
+            <button type="button" class="btn btn-primary btn-full" id="cart-checkout-btn">Proceed to Checkout</button>
+          </aside>
+        </div>
+      </section>
+
+      <!-- CHECKOUT -->
+      <section class="view" id="view-checkout" data-view="/checkout">
+        <h1>Checkout</h1>
+        <ol class="checkout-steps" id="checkout-steps">
+          <li data-step="review" class="active">1. Review</li>
+          <li data-step="payment">2. Payment</li>
+          <li data-step="confirm">3. Confirmation</li>
+        </ol>
+
+        <div class="checkout-layout">
+          <div class="checkout-main">
+
+            <div class="checkout-panel" id="checkout-step-review">
+              <h2>Review your order</h2>
+              <ul class="checkout-review-list" id="checkout-review-list"></ul>
+
+              <div class="checkout-identity" id="checkout-identity"></div>
+
+              <button type="button" class="btn btn-primary" id="checkout-to-payment-btn">Continue to Payment</button>
+            </div>
+
+            <div class="checkout-panel" id="checkout-step-payment" hidden>
+              <h2>Payment method</h2>
+              <div class="payment-method-picker">
+                <label class="payment-option">
+                  <input type="radio" name="payment-method" value="credit_card" checked />
+                  <span>Credit / Debit Card</span>
+                </label>
+                <label class="payment-option">
+                  <input type="radio" name="payment-method" value="digital_wallet" />
+                  <span>Digital Wallet</span>
+                </label>
+              </div>
+
+              <div id="card-fields" class="card-fields">
+                <label class="field-label">Card number</label>
+                <input type="text" id="card-number" placeholder="4242 4242 4242 4242" autocomplete="off" />
+                <p class="field-hint">Simulated payment &mdash; no real card is charged. Try <code>4242 4242 4242 4242</code> for a successful payment, or <code>4000 0000 0000 0002</code> to see a simulated decline.</p>
+                <div class="card-fields-row">
+                  <div>
+                    <label class="field-label">Expiry</label>
+                    <input type="text" id="card-expiry" placeholder="12/29" autocomplete="off" />
+                  </div>
+                  <div>
+                    <label class="field-label">CVC</label>
+                    <input type="text" id="card-cvc" placeholder="123" autocomplete="off" />
+                  </div>
+                </div>
+              </div>
+
+              <p class="checkout-error" id="checkout-error"></p>
+              <button type="button" class="btn btn-primary btn-lg" id="place-order-btn">Place Order</button>
+            </div>
+
+            <div class="checkout-panel checkout-processing" id="checkout-step-processing" hidden>
+              <div class="spinner"></div>
+              <p>Processing your payment&hellip;</p>
+            </div>
+
+            <div class="checkout-panel checkout-result" id="checkout-step-success" hidden>
+              <div class="result-icon success">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+              </div>
+              <h2>Order confirmed</h2>
+              <p class="result-sub" id="success-order-ref"></p>
+              <div class="receipt-card" id="success-receipt"></div>
+              <div class="result-actions">
+                <a href="#/products" class="btn btn-secondary">Continue Shopping</a>
+                <a href="#/orders" class="btn btn-primary">View My Orders</a>
+              </div>
+            </div>
+
+            <div class="checkout-panel checkout-result" id="checkout-step-failed" hidden>
+              <div class="result-icon failure">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </div>
+              <h2>Payment failed</h2>
+              <p class="result-sub" id="failed-reason"></p>
+              <p class="field-hint">Nothing was charged and your cart is still here. Try again with a different card, or use Digital Wallet.</p>
+              <div class="result-actions">
+                <button type="button" class="btn btn-primary" id="retry-payment-btn">Try Again</button>
+              </div>
+            </div>
+
+          </div>
+
+          <aside class="cart-summary-card checkout-summary" id="checkout-summary"></aside>
+        </div>
+      </section>
+
+      <!-- LOGIN -->
+      <section class="view" id="view-login" data-view="/login">
+        <div class="auth-card">
+          <h1>Log in</h1>
+          <form id="login-form">
+            <label class="field-label">Email</label>
+            <input type="email" id="login-email" required autocomplete="username" />
+            <label class="field-label">Password</label>
+            <input type="password" id="login-password" required autocomplete="current-password" />
+            <p class="checkout-error" id="login-error"></p>
+            <button type="submit" class="btn btn-primary btn-full">Log in</button>
+          </form>
+          <p class="auth-demo-hint">Demo account: <code>demo@omniretail.test</code> / <code>password123</code></p>
+          <p class="auth-switch">New here? <a href="#/register">Create an account</a></p>
+        </div>
+      </section>
+
+      <!-- REGISTER -->
+      <section class="view" id="view-register" data-view="/register">
+        <div class="auth-card">
+          <h1>Create an account</h1>
+          <form id="register-form">
+            <label class="field-label">Name</label>
+            <input type="text" id="register-name" required autocomplete="name" />
+            <label class="field-label">Email</label>
+            <input type="email" id="register-email" required autocomplete="username" />
+            <label class="field-label">Password</label>
+            <input type="password" id="register-password" required minlength="6" autocomplete="new-password" />
+            <p class="field-hint">At least 6 characters.</p>
+            <p class="checkout-error" id="register-error"></p>
+            <button type="submit" class="btn btn-primary btn-full">Create account</button>
+          </form>
+          <p class="auth-switch">Already have an account? <a href="#/login">Log in</a></p>
+        </div>
+      </section>
+
+      <!-- MY ORDERS -->
+      <section class="view" id="view-orders" data-view="/orders">
+        <h1>My Orders</h1>
+        <div id="orders-body"></div>
+      </section>
+
+    </main>
+
+    <footer class="shop-footer">
+      <p>OMNI Retail Shop &mdash; prototype storefront, simulated payments only.</p>
+      <a href="/" class="link-admin">Switch to Admin Dashboard &rarr;</a>
+    </footer>
+  </div>
+
+  <div class="order-detail-overlay" id="order-detail-overlay">
+    <div class="receipt-card overlay-card" id="order-detail-card"></div>
+  </div>
+
+  <script src="app.js?v=2"></script>
+</body>
+</html>

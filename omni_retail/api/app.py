@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -17,6 +18,7 @@ from omni_retail.api.routers import (
     products,
     profit,
     revenue,
+    storefront,
     website,
 )
 
@@ -33,9 +35,11 @@ ROUTERS = (
     alerts.router,
     assistant.router,
     pos.router,
+    storefront.router,
 )
 
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent.parent / "dashboard"
+STOREFRONT_DIR = Path(__file__).resolve().parent.parent.parent / "storefront"
 
 
 class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
@@ -74,6 +78,18 @@ def create_app() -> FastAPI:
 
     for router in ROUTERS:
         app.include_router(router)
+
+    # Starlette's Mount("/store", ...) only matches "/store/..." -- the bare
+    # "/store" (no trailing slash, which is what a typed URL or a plain link
+    # href="/store" produces) 404s without this explicit redirect.
+    @app.get("/store", include_in_schema=False)
+    def _redirect_to_store() -> RedirectResponse:
+        return RedirectResponse(url="/store/")
+
+    # /store (customer storefront) must be mounted before / (admin
+    # dashboard), since the root mount is a catch-all.
+    if STOREFRONT_DIR.exists():
+        app.mount("/store", StaticFiles(directory=STOREFRONT_DIR, html=True), name="storefront")
 
     if DASHBOARD_DIR.exists():
         app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard")

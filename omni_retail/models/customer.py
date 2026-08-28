@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 
 from sqlalchemy import Date, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -13,6 +14,11 @@ class Customer(Base):
     name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str] = mapped_column(String(200), unique=True)
     join_date: Mapped[date] = mapped_column(Date)
+    # Storefront login. Nullable: most seeded customers are admin-side-only
+    # and never registered on the storefront. Prototype-grade auth --
+    # stdlib PBKDF2, not a claim of production security hardening.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    password_salt: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
 

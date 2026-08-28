@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta
 from faker import Faker
 from sqlalchemy.orm import Session
 
+from omni_retail.auth import hash_password
 from omni_retail.data.catalog import PRODUCT_CATALOG
 from omni_retail.models import (
     Customer,
@@ -122,6 +123,17 @@ def _seed_inventory(session: Session, products: list[Product], rng: random.Rando
         )
 
 
+# Storefront demo login accounts, seeded with known credentials so the
+# purchase flow can be demonstrated without registering first. Given
+# real order history (via the normal tier-based generation below) so
+# "My Orders" has something to show. Registration still works for any
+# other account -- these are a convenience, not the only way in.
+DEMO_ACCOUNTS = [
+    ("Jordan Rivera", "demo@omniretail.test", "password123", "vip"),
+    ("Alex Chen", "customer@omniretail.test", "password123", "regular"),
+]
+
+
 def _seed_customers(
     session: Session, faker: Faker, rng: random.Random, history_start: date, today: date
 ) -> list[tuple[Customer, str]]:
@@ -130,6 +142,21 @@ def _seed_customers(
 
     customers = []
     seen_emails: set[str] = set()
+
+    for name, email, password, tier in DEMO_ACCOUNTS:
+        salt, password_hash = hash_password(password)
+        join_offset = rng.randint(0, (today - history_start).days)
+        customer = Customer(
+            name=name,
+            email=email,
+            join_date=history_start + timedelta(days=join_offset),
+            password_hash=password_hash,
+            password_salt=salt,
+        )
+        session.add(customer)
+        customers.append((customer, tier))
+        seen_emails.add(email)
+
     for _ in range(NUM_CUSTOMERS):
         tier = _weighted_choice(rng, tier_names, tier_weights)
         join_offset = rng.randint(0, (today - history_start).days)

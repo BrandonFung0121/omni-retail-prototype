@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from omni_retail import services
@@ -26,3 +26,12 @@ def get_top_products(
     session: Session = Depends(get_session),
 ) -> list[ProductPerformanceOut]:
     return services.top_products(session, start, end, limit=limit, by=by)
+
+
+@router.get("/{product_id}", response_model=ProductCatalogEntryOut)
+def get_product(product_id: int, session: Session = Depends(get_session)) -> ProductCatalogEntryOut:
+    """Single product with live stock, for the storefront Product Details page."""
+    product = services.get_product(session, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail=f"No product with id {product_id}.")
+    return product

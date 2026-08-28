@@ -20,6 +20,12 @@ of the system that writes data. Completing a sale creates the order,
 decrements inventory, and is immediately reflected everywhere else
 (dashboard, alerts, AI assistant), since none of those recompute or
 cache -- they just read current state.
+**Phase 6** (done): a customer-facing storefront (`/store`) built on
+the exact same `transactions.complete_sale()` as the POS -- browse,
+cart, checkout with a simulated payment (success/decline), account
+login/registration, and order history. Online and in-store sales are
+the same kind of `Order` row; the admin dashboard, alerts, and AI
+assistant don't know or care which channel a sale came from.
 
 ## Project layout
 
@@ -55,9 +61,18 @@ omni_retail/
   transactions/
     models.py             # Cart/CartItem/SaleReceipt dataclasses + TransactionError hierarchy
     service.py               # complete_sale() -- the only place anything is written
+  payments/
+    models.py             # PaymentRequest/PaymentResult
+    processor.py            # PaymentProcessor interface + SimulatedPaymentProcessor
+  auth/
+    passwords.py          # PBKDF2 password hashing (storefront accounts only)
+    sessions.py            # in-memory bearer-token sessions
 dashboard/
-  index.html, styles.css, app.js   # static JS dashboard (Chart.js via CDN,
+  index.html, styles.css, app.js   # static JS admin dashboard (Chart.js via CDN,
                                      # fetches the JSON API, no build step)
+storefront/
+  index.html, styles.css, app.js   # static JS customer storefront, served at /store,
+                                     # visually distinct from the admin dashboard
 scripts/
   seed_db.py            # builds omni_retail.db and prints a KPI summary
   run_dashboard.py       # runs the API + dashboard on http://127.0.0.1:8000
@@ -68,6 +83,8 @@ tests/
   test_ai_agent.py         # intent classification, grounded-answer, and error-handling tests
   test_transactions.py      # complete_sale() unit tests, each isolated in its own in-memory DB
   test_pos_api.py            # POS/orders API tests, same isolation
+  test_payments.py            # SimulatedPaymentProcessor unit tests
+  test_storefront_api.py       # register/login/checkout/my-orders, same isolation
 ```
 
 ## Getting started
@@ -85,10 +102,11 @@ python scripts/run_dashboard.py   # http://127.0.0.1:8000 (dashboard)
 
 ## API
 
-All endpoints are read-only GETs, most accepting optional `start`/`end`
+Most endpoints are read-only GETs accepting optional `start`/`end`
 (ISO date) query params to scope the period; omitting both returns
 all-time figures. Every route is a thin wrapper around
-`services/analytics.py` — no business logic lives in the API layer.
+`services/analytics.py` (or `transactions`/`payments` for the two
+write endpoints) — no business logic lives in the API layer.
 
 | Endpoint | Returns |
 |---|---|
@@ -112,8 +130,15 @@ all-time figures. Every route is a thin wrapper around
 | `GET /api/products` | full catalog with live stock -- for the POS product picker |
 | `GET /api/customers/search?q=` | name/email typeahead -- for the POS customer picker |
 | `POST /api/pos/checkout` | complete a sale (the only write endpoint in the API) |
-| `GET /api/orders?status=&limit=&offset=` | paginated transaction list |
-| `GET /api/orders/{id}` | full line-item detail for one order (a receipt) |
+| `GET /api/orders?status=&limit=&offset=` | paginated transaction list (admin, unauthenticated) |
+| `GET /api/orders/{id}` | full line-item detail for one order (admin, unauthenticated) |
+| `GET /api/products/{id}` | single product with live stock -- for the storefront Product Details page |
+| `POST /api/storefront/auth/register` | create a storefront account |
+| `POST /api/storefront/auth/login` | log in, returns a bearer token |
+| `GET /api/storefront/me` | the logged-in customer (requires `Authorization: Bearer <token>`) |
+| `POST /api/storefront/checkout` | complete an online purchase (guest or logged-in); same `complete_sale()` as POS |
+| `GET /api/storefront/orders` | the logged-in customer's own order history |
+| `GET /api/storefront/orders/{id}` | one of the logged-in customer's own orders (404 if it isn't theirs) |
 
 ## Point of sale & transactions
 
@@ -121,18 +146,38 @@ all-time figures. Every route is a thin wrapper around
 writes to the database. `complete_sale(session, cart)` is a pure
 function -- session and a `Cart` in, a `SaleReceipt` out, or a specific
 `TransactionError` raised -- with no knowledge of HTTP, the POS UI, or
-any particular front end. The POS API (`/api/pos/checkout`) is a thin
-wrapper around it; a future customer storefront should build a `Cart`
-and call `complete_sale()` the same way rather than reimplementing any
-part of checkout.
+any particular front end. **Both** the POS API (`/api/pos/checkout`)
+and the storefront API (`/api/storefront/checkout`) build a `Cart` and
+call this exact same function; neither reimplements any part of
+checkout. Online vs. in-store is just `Cart.channel`.
 
 Every validation check (empty cart, non-positive quantity, unknown
-product, insufficient stock, invalid discount, unknown customer,
-invalid payment method) runs **before** the first database write, so a
-rejected sale is guaranteed to leave the database untouched. A
-successful sale creates the `Order` and `OrderItem`s, creates the
-`Payment`, and decrements `Inventory.current_stock` -- all in one
-transaction.
+product, insufficient stock -- re-checked against *current* DB state,
+so a product that went out of stock between browsing and checkout is
+caught here too -- invalid discount, unknown customer, invalid payment
+method) runs **before** the first database write, so a rejected sale
+is guaranteed to leave the database untouched.
+
+**Payment** (`omni_retail/payments/`): `complete_sale()` charges the
+cart via a `PaymentProcessor` interface before writing anything.
+`SimulatedPaymentProcessor` (the only implementation today) never
+contacts a real provider or stores real card data; it uses Stripe's
+own well-known test-card convention (`4242...4242` succeeds,
+`4000...0002` declines) so the decline path is genuinely
+demonstrable. A successful charge writes the sale exactly as before:
+`Order` COMPLETED, `Inventory` decremented, `Payment` SUCCESS. A
+**declined** charge still writes an audit record -- `Order` CANCELLED
+with its line items, `Payment` FAILED, referencing the same
+`PaymentResult` -- but inventory is never touched. Swapping in a real
+provider later means writing a `StripePaymentProcessor` and passing an
+instance to `complete_sale()`; nothing else changes.
+
+**Duplicate submissions:** the storefront generates one idempotency
+key per checkout attempt; resending the same key (a double-click, a
+network retry) replays the first `SaleReceipt` instead of charging
+twice. The cache lives at the API layer (`api/routers/storefront.py`),
+not inside `complete_sale()`, keeping the transaction function itself
+free of HTTP-level concerns.
 
 **Discounts:** a cart discount (percent or a fixed dollar amount) is
 pro-rated across line items and baked directly into each
@@ -152,6 +197,36 @@ alert, and the AI agent's next answer are already correct.
 guest sale; `high_value_customers()` already inner-joins `Order` to
 `Customer`, so guest orders simply don't appear in customer rankings,
 which is correct.
+
+## Customer storefront
+
+`storefront/` (served at `/store`) is a separate, visually distinct
+static site -- warm/retail branding, a serif display font, hash-routed
+views (Home, Catalogue with search/filter, Product Details, Cart,
+Checkout, Login/Register, My Orders) -- from the indigo/dark admin
+dashboard at `/`. Each has a header link to the other, for demoing
+both sides of the system. Checkout is a visible state machine: Review
+→ Payment → **Processing** (a brief animated wait, purely a frontend
+UX beat -- the backend call is already synchronous and fast) →
+Success or Failure → Confirmation. A failed payment leaves the cart
+untouched so the customer can just retry.
+
+**Auth is intentionally lightweight -- a prototype login, not
+production security.** `omni_retail/auth/` hashes passwords with
+stdlib PBKDF2-HMAC-SHA256 (no bcrypt/argon2 dependency) and issues an
+opaque bearer token backed by an in-memory `dict` (no JWT library, no
+persistent session store). Two demo accounts are seeded with known
+credentials (`demo@omniretail.test` / `password123`, plus a second
+regular-tier account) so the purchase flow can be shown without
+registering first -- registration is equally functional for any other
+account, seeded or not.
+
+**"My Orders" is deliberately not the same endpoint the admin
+dashboard uses.** `GET /api/orders/{id}` is fine for an unauthenticated
+internal staff tool, but a customer-facing equivalent must not let any
+visitor enumerate other customers' order details by guessing IDs --
+`GET /api/storefront/orders/{id}` checks `order.customer_id` against
+the logged-in customer and 404s otherwise.
 
 ## Automation & alerting
 
@@ -224,7 +299,9 @@ period-over-period deltas, a revenue/orders trend chart, top products
 and high-value customer tables, low/out-of-stock inventory alerts, an
 expense breakdown donut, and a website traffic/conversion trend chart.
 Completing a sale on the POS screen immediately refreshes the KPIs,
-Action Center, and product/transaction lists.
+Action Center, and product/transaction lists -- and so does a sale
+completed on the customer storefront, with no special-casing (see
+below). A sidebar link ("View Storefront") jumps to `/store`.
 A 7D/30D/90D range picker re-fetches everything for the selected
 window (the Action Center and AI Assistant use their own
 per-rule/per-question periods, independent of that picker). It's plain
@@ -276,6 +353,9 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 - Agent actions with human approval (e.g. drafting a reorder, a win-back email) -- still no unsupervised writes.
 - Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
 - Multi-agent workflows and external integrations (e.g. actually sending the win-back email, filing the reorder).
-- A customer-facing storefront built on `transactions.complete_sale()` -- same checkout logic, different front end (channel would be `online` instead of `in_store`).
 - Refunds/cancellations as a second write path alongside `complete_sale()`.
 - Receipt printing/emailing, and barcode-scanner input for the POS product picker.
+- A real `StripePaymentProcessor` implementing the existing `PaymentProcessor` interface -- the checkout flow and `complete_sale()` wouldn't need to change.
+- Production-grade storefront auth (signed/expiring tokens, a real session store) in place of the current in-memory prototype version.
+- Product images, reviews, and a "you might also like" recommendation surface on the storefront.
+- Order fulfillment/shipping status as a stage beyond `completed`, surfaced on both My Orders and the admin Transactions view.

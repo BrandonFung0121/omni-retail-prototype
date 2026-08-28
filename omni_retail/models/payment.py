@@ -1,7 +1,8 @@
 import enum
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Numeric
+from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from omni_retail.database import Base
@@ -30,5 +31,8 @@ class Payment(Base):
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
     status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus))
     payment_date: Mapped[datetime] = mapped_column(DateTime)
+    # Simulated payment-gateway transaction reference (e.g. "SIM-<hex>").
+    # Nullable so historical/seeded payments predating this field stay valid.
+    reference: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     order: Mapped["Order"] = relationship(back_populates="payment")

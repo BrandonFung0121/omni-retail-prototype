@@ -183,6 +183,70 @@ def test_insufficient_stock_names_the_product_and_available_quantity(fresh_sessi
     assert exc_info.value.requested == product.current_stock + 1
 
 
+def test_successful_sale_has_completed_status_and_reference(fresh_session):
+    """Regression check: adding payment-decline support must not change
+    Phase 5's success behavior."""
+    product = _healthy_product(fresh_session)
+    receipt = complete_sale(
+        fresh_session,
+        Cart(items=[CartItem(product_id=product.product_id, quantity=1)], payment_method="digital_wallet"),
+    )
+    assert receipt.status == "completed"
+    assert receipt.payment_status == "success"
+    assert receipt.payment_reference.startswith("SIM-")
+    assert receipt.failure_reason is None
+
+    from omni_retail.models import Order, OrderStatus
+
+    order = fresh_session.get(Order, receipt.order_id)
+    assert order.status == OrderStatus.COMPLETED
+
+
+def test_declined_card_creates_cancelled_order_without_touching_inventory(fresh_session):
+    product = _healthy_product(fresh_session)
+    stock_before = product.current_stock
+
+    receipt = complete_sale(
+        fresh_session,
+        Cart(
+            items=[CartItem(product_id=product.product_id, quantity=2)],
+            payment_method="credit_card",
+            card_number="4000 0000 0000 0002",
+        ),
+    )
+
+    assert receipt.status == "cancelled"  # the order's status; payment_status carries the "failed" outcome
+    assert receipt.payment_status == "failed"
+    assert receipt.failure_reason
+
+    from omni_retail.models import Order, OrderStatus, Payment, PaymentStatus
+
+    order = fresh_session.get(Order, receipt.order_id)
+    assert order.status == OrderStatus.CANCELLED
+    assert len(order.items) == 1, "the attempted line items should still be recorded, for the audit trail"
+
+    payment = fresh_session.query(Payment).filter_by(order_id=order.id).one()
+    assert payment.status == PaymentStatus.FAILED
+    assert payment.reference == receipt.payment_reference
+
+    after = next(p for p in services.list_products(fresh_session) if p.product_id == product.product_id)
+    assert after.current_stock == stock_before, "a declined payment must never decrement inventory"
+
+
+def test_declined_payment_is_still_visible_in_admin_order_list(fresh_session):
+    product = _healthy_product(fresh_session)
+    receipt = complete_sale(
+        fresh_session,
+        Cart(
+            items=[CartItem(product_id=product.product_id, quantity=1)],
+            payment_method="credit_card",
+            card_number="4000000000000002",
+        ),
+    )
+    orders = services.list_orders(fresh_session, status=None, limit=5)
+    assert any(o.order_id == receipt.order_id and o.status == "cancelled" for o in orders)
+
+
 def test_duplicate_line_items_for_same_product_are_aggregated(fresh_session):
     product = _healthy_product(fresh_session)
     receipt = complete_sale(
