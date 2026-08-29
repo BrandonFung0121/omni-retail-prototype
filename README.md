@@ -26,6 +26,13 @@ cart, checkout with a simulated payment (success/decline), account
 login/registration, and order history. Online and in-store sales are
 the same kind of `Order` row; the admin dashboard, alerts, and AI
 assistant don't know or care which channel a sale came from.
+**Phase 7** (done): agentic actions with human approval. The AI turns
+open alerts into structured, proposed business actions (a win-back
+offer, a restock request, a follow-up task) -- but never runs any of
+them itself. An admin reviews the evidence, can edit the proposed
+parameters, and only then approves or rejects; approval triggers a
+simulated external action (email, purchase order) behind a swappable
+executor interface, and every step is kept in an auditable history.
 
 ## Project layout
 
@@ -67,6 +74,12 @@ omni_retail/
   auth/
     passwords.py          # PBKDF2 password hashing (storefront accounts only)
     sessions.py            # in-memory bearer-token sessions
+  actions/
+    models.py             # ProposalDraft dataclass + action-lifecycle exceptions
+    proposals.py            # Alert -> ProposalDraft, one builder per alert type
+    executors.py              # ActionExecutor interface + simulated email/task/PO executors
+    service.py                 # create_proposals/approve_action/reject_action/execute_action --
+                                # the only place anything is written to agent_actions
 dashboard/
   index.html, styles.css, app.js   # static JS admin dashboard (Chart.js via CDN,
                                      # fetches the JSON API, no build step)
@@ -85,6 +98,8 @@ tests/
   test_pos_api.py            # POS/orders API tests, same isolation
   test_payments.py            # SimulatedPaymentProcessor unit tests
   test_storefront_api.py       # register/login/checkout/my-orders, same isolation
+  test_actions.py               # proposal/approve/reject/execute lifecycle, service layer
+  test_actions_api.py            # same lifecycle through the HTTP API
 ```
 
 ## Getting started
@@ -139,6 +154,11 @@ write endpoints) — no business logic lives in the API layer.
 | `POST /api/storefront/checkout` | complete an online purchase (guest or logged-in); same `complete_sale()` as POS |
 | `GET /api/storefront/orders` | the logged-in customer's own order history |
 | `GET /api/storefront/orders/{id}` | one of the logged-in customer's own orders (404 if it isn't theirs) |
+| `POST /api/actions/generate` | run the AI's proposal pass against current alerts; returns only newly created proposals |
+| `GET /api/actions?status=` | all agent actions, most recent first; optionally filter by status |
+| `GET /api/actions/{id}` | one agent action, with full evidence/parameters/decision/result |
+| `POST /api/actions/{id}/approve` | approve a proposed action (optionally with edited parameters) and execute it |
+| `POST /api/actions/{id}/reject` | reject a proposed action (terminal; optional reason) |
 
 ## Point of sale & transactions
 
@@ -281,27 +301,85 @@ gracefully: an unrecognized question gets a helpful list of what it
 can answer (not an error), and a retrieval failure is caught and
 returns a low-confidence response instead of a 500.
 
-**This phase is analysis only.** Every `gather_*` function is
-read-only; there is no path from a question to a database write or an
-external action. `retrieval.py`'s functions are already shaped like
-tools (one function, one data need), so a later phase adding real LLM
-tool-calling, agent actions, human-approval gates, or multi-agent
-workflows would extend this package rather than restructure it.
+**Phase 4 itself remains analysis only** -- every `gather_*` function
+is read-only. Phase 7 (below) is the first part of this codebase where
+the AI's output can lead to a write, and even then only through an
+explicit human approval step.
+
+## Agent actions & human approval
+
+`omni_retail/actions/` turns open alerts (from the same
+`automation/rules.py` used by the Action Center) into structured,
+proposed business actions -- and enforces that **none of them run
+without an explicit human decision**.
+
+**Lifecycle:** `proposed -> approved -> executed | failed`, or
+`proposed -> rejected` (terminal). Every action records its business
+reason, supporting evidence (the alert's own data), proposed
+parameters, expected outcome, a risk level, who decided it and when,
+and the execution result -- so `AI recommendation -> human decision ->
+executed action -> result` is always visible for any action, not just
+the most recent one.
+
+| Alert type | Proposed action | Editable parameters |
+|---|---|---|
+| Customer win-back opportunity | Win-back offer: a drafted message and discount % | offer %, message text, recipient email |
+| Low stock / out of stock | Restock request | restock quantity |
+| Revenue drop, expense spike, traffic/conversion gap, order failure pattern | Follow-up task (also how a non-customer, non-stock alert gets acknowledged) | task description, priority |
+
+**The approval gate lives in the service layer, not the API.**
+`execute_action()` raises `ActionNotApprovedError` for anything that
+isn't `APPROVED` -- checked directly by tests that call it without
+going through `approve_action()` first, so the guarantee holds
+regardless of caller, not just because the API doesn't expose an
+"execute" button. Approving an action calls `approve_action()` then
+immediately `execute_action()` in the same request (there's no job
+queue in this prototype), but they remain two distinct functions so a
+future version could queue execution asynchronously without touching
+what "approved" means.
+
+**External actions are simulated behind an `ActionExecutor`
+interface** (`actions/executors.py`), the same pattern as
+`payments.PaymentProcessor`: `SimulatedEmailExecutor` (win-back offers),
+`SimulatedTaskExecutor` (follow-up tasks), and
+`SimulatedPurchaseOrderExecutor` (restocks) each return a structured
+result with no real email sent and no real supplier contacted.
+Connecting a real email provider, CRM, or supplier/ERP API later means
+writing a class that implements `execute()` and registering it in
+`EXECUTORS`; nothing about the approval workflow, the API, or the
+dashboard changes. The restock executor also has a deterministic
+failure mode (a supplier can't fulfill more than 500 units in one
+purchase order) so the `executed` vs. `failed` distinction is
+genuinely demonstrable, not just theoretical.
+
+**Proposal generation is idempotent.** Re-running it never creates a
+duplicate proposal for an alert that already has an open one --
+unless the prior proposal for that alert was rejected, since the
+business condition may have changed since then and is worth
+re-proposing.
+
+**No admin-user table exists in this prototype**, so `decided_by` is a
+free-text name (the dashboard sends a fixed "Brandon Fung", the same
+way the topbar's "BF" chip is a static demo indicator, not a real
+session) rather than a foreign key.
 
 ## Dashboard
 
 A single-page dashboard (`dashboard/`) served by the same FastAPI app:
-an Action Center, an AI Business Analyst chat panel, a Point of Sale
-screen (product grid, cart, discount, guest-or-existing customer,
-payment method, receipt confirmation), a Transactions list with
-status filtering and a receipt-detail view, KPI cards with
+an Action Center, an AI Business Analyst chat panel, an Agent Actions
+panel (review evidence, edit safe parameters, approve/reject, see
+execution results and full decision history -- filterable by status),
+a Point of Sale screen (product grid, cart, discount, guest-or-existing
+customer, payment method, receipt confirmation), a Transactions list
+with status filtering and a receipt-detail view, KPI cards with
 period-over-period deltas, a revenue/orders trend chart, top products
 and high-value customer tables, low/out-of-stock inventory alerts, an
 expense breakdown donut, and a website traffic/conversion trend chart.
 Completing a sale on the POS screen immediately refreshes the KPIs,
-Action Center, and product/transaction lists -- and so does a sale
-completed on the customer storefront, with no special-casing (see
-below). A sidebar link ("View Storefront") jumps to `/store`.
+Action Center, Agent Actions proposals, and product/transaction lists
+-- and so does a sale completed on the customer storefront, with no
+special-casing (see below). A sidebar link ("View Storefront") jumps
+to `/store`.
 A 7D/30D/90D range picker re-fetches everything for the selected
 window (the Action Center and AI Assistant use their own
 per-rule/per-question periods, independent of that picker). It's plain
@@ -349,10 +427,11 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 ## Next phases
 
 - Real LLM-powered synthesis (`ai/synthesis.py`'s `AnswerSynthesizer` interface is ready for it) for more natural phrasing, multi-turn follow-up questions, and open-ended "why" investigation beyond the 8 fixed intents.
-- Real tool-calling: let an LLM choose which `retrieval.py` function(s) to call instead of the fixed keyword classifier.
-- Agent actions with human approval (e.g. drafting a reorder, a win-back email) -- still no unsupervised writes.
+- Real tool-calling: let an LLM choose which `retrieval.py` function(s) to call instead of the fixed keyword classifier, and potentially propose actions directly rather than only via the fixed alert-type mapping in `actions/proposals.py`.
 - Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
-- Multi-agent workflows and external integrations (e.g. actually sending the win-back email, filing the reorder).
+- Multi-agent workflows and real external integrations behind the existing `ActionExecutor` interface (actually sending the win-back email, filing the purchase order with a supplier/ERP API).
+- Asynchronous/queued execution once approved, instead of the current synchronous approve-then-execute in one request.
+- A real admin-user/session system so `AgentAction.decided_by` is a foreign key, not a fixed demo name.
 - Refunds/cancellations as a second write path alongside `complete_sale()`.
 - Receipt printing/emailing, and barcode-scanner input for the POS product picker.
 - A real `StripePaymentProcessor` implementing the existing `PaymentProcessor` interface -- the checkout flow and `complete_sale()` wouldn't need to change.

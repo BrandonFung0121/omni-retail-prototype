@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from omni_retail.api.routers import (
+    actions,
     alerts,
     assistant,
     customers,
@@ -36,6 +37,7 @@ ROUTERS = (
     assistant.router,
     pos.router,
     storefront.router,
+    actions.router,
 )
 
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent.parent / "dashboard"

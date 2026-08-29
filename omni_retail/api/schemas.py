@@ -280,3 +280,36 @@ class CustomerMeOut(BaseModel):
 class AuthResponse(BaseModel):
     token: str
     customer: CustomerMeOut
+
+
+class AgentActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    action_type: str
+    source_alert_id: str | None
+    customer_id: int | None
+    product_id: int | None
+    business_reason: str
+    supporting_evidence: dict[str, Any]
+    proposed_parameters: dict[str, Any]
+    edited_parameters: dict[str, Any] | None
+    expected_outcome: str
+    risk_level: str
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+    decided_by: str | None
+    rejection_reason: str | None
+    executed_at: datetime | None
+    execution_result: dict[str, Any] | None
+
+
+class ApproveActionRequest(BaseModel):
+    decided_by: str = "Admin"
+    edited_parameters: dict[str, Any] | None = None
+
+
+class RejectActionRequest(BaseModel):
+    decided_by: str = "Admin"
+    reason: str | None = None
