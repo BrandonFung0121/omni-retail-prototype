@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <div class="app-shell">
@@ -35,6 +35,11 @@
         <a href="#assistant" class="nav-link" data-nav="assistant">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 13.4 6.6 17.5 8l-4.1 1.4L12 13.5l-1.4-4.1L6.5 8l4.1-1.4L12 2.5Z"/><path d="M5 15.5 5.7 17.5 7.7 18.2 5.7 18.9 5 21 4.3 18.9 2.3 18.2 4.3 17.5 5 15.5Z"/><path d="M18.5 13.5 19.1 15.3 20.9 16 19.1 16.6 18.5 18.5 17.9 16.6 16.1 16 17.9 15.3 18.5 13.5Z"/></svg>
           <span>AI Assistant</span>
+        </a>
+        <a href="#agent-actions" class="nav-link" data-nav="agent-actions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12.5 11 14.5 15.5 9.5"/><circle cx="12" cy="12" r="9"/></svg>
+          <span>Agent Actions</span>
+          <span class="nav-badge" id="nav-actions-badge"></span>
         </a>
 
         <span class="nav-section-label">Sales</span>
@@ -144,6 +149,28 @@
         <div class="assistant-thread" id="assistant-thread">
           <p class="empty-state">Ask a question above, or click one of the examples.</p>
         </div>
+      </section>
+
+      <section id="agent-actions" class="panel agent-actions-panel">
+        <div class="panel-header">
+          <div class="panel-heading">
+            <h2>Agent Actions</h2>
+            <p class="panel-subtitle">AI-proposed business actions from current alerts. Nothing runs until you approve it.</p>
+          </div>
+          <div class="alert-filter-row" role="group" aria-label="Filter actions by status" id="agent-actions-filter-row">
+            <button data-status="all" class="active">All</button>
+            <button data-status="proposed">Proposed</button>
+            <button data-status="approved">Approved</button>
+            <button data-status="executed">Executed</button>
+            <button data-status="failed">Failed</button>
+            <button data-status="rejected">Rejected</button>
+          </div>
+        </div>
+        <div class="panel-header agent-actions-toolbar">
+          <div class="stat-chip-row" id="agent-actions-summary"></div>
+          <button type="button" class="pos-select" id="agent-actions-refresh-btn">Check for new proposals</button>
+        </div>
+        <ul class="action-list agent-actions-list" id="agent-actions-list"></ul>
       </section>
 
       <section id="pos" class="panel pos-panel">
@@ -401,6 +428,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

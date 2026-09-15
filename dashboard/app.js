@@ -29,6 +29,8 @@ const state = {
   rangeDays: 30,
   alertFilter: "all",
   alerts: [],
+  agentActionsFilter: "all",
+  agentActions: [],
   charts: {},
 };
 
@@ -537,6 +539,250 @@ document.getElementById("assistant-form").addEventListener("submit", (event) => 
   submitQuestion(question);
 });
 
+/* ---------- Agent Actions (Phase 7) ---------- */
+
+const AGENT_ACTION_TYPE_LABELS = {
+  win_back_offer: "Win-Back Offer",
+  restock_request: "Restock Request",
+  followup_task: "Follow-Up Task",
+};
+
+const AGENT_ACTION_ICONS = {
+  win_back_offer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>`,
+  restock_request: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V8.5"/><path d="M10 13h4"/></svg>`,
+  followup_task: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12.5 11 14.5 15.5 9.5"/><circle cx="12" cy="12" r="9"/></svg>`,
+};
+
+const AGENT_PARAM_LABELS = {
+  offer_percent: "Offer (%)",
+  message: "Message",
+  customer_email: "Customer email",
+  restock_quantity: "Restock quantity",
+  product_name: "Product",
+  task: "Task",
+  priority: "Priority",
+};
+
+// This is a single-admin prototype with no login system on the dashboard
+// side (the "BF" chip in the topbar is decorative) -- every approval/
+// rejection is attributed to this fixed name rather than a real session.
+const AGENT_ACTIONS_DECIDER = "Brandon Fung";
+
+function renderAgentActionsSummary(actions) {
+  const counts = { proposed: 0, approved: 0, executed: 0, failed: 0, rejected: 0 };
+  actions.forEach((a) => {
+    counts[a.status] = (counts[a.status] || 0) + 1;
+  });
+
+  document.getElementById("agent-actions-summary").innerHTML = `
+    <span class="stat-chip proposed"><span class="dot"></span>${counts.proposed} proposed</span>
+    <span class="stat-chip executed"><span class="dot"></span>${counts.executed} executed</span>
+    <span class="stat-chip failed"><span class="dot"></span>${counts.failed} failed</span>
+    <span class="stat-chip rejected"><span class="dot"></span>${counts.rejected} rejected</span>
+  `;
+
+  const badge = document.getElementById("nav-actions-badge");
+  badge.textContent = counts.proposed > 0 ? String(counts.proposed) : "";
+}
+
+function renderAgentActionParamField(key, value) {
+  const label = AGENT_PARAM_LABELS[key] || key;
+  if (key === "message" || (typeof value === "string" && value.length > 60)) {
+    return `
+      <label class="agent-param-label">${escapeHTML(label)}</label>
+      <textarea class="agent-action-param-textarea" data-param="${key}" data-param-type="string" rows="3">${escapeHTML(
+      String(value)
+    )}</textarea>`;
+  }
+  if (typeof value === "number") {
+    return `
+      <label class="agent-param-label">${escapeHTML(label)}</label>
+      <input type="number" class="agent-action-param-input" data-param="${key}" data-param-type="number" value="${value}" />`;
+  }
+  return `
+    <label class="agent-param-label">${escapeHTML(label)}</label>
+    <input type="text" class="agent-action-param-input" data-param="${key}" data-param-type="string" value="${escapeHTML(
+    String(value)
+  )}" />`;
+}
+
+function renderAgentActionEvidence(evidence) {
+  const rows = Object.entries(evidence || {})
+    .map(
+      ([key, value]) =>
+        `<div class="agent-evidence-row"><span>${escapeHTML(key.replace(/_/g, " "))}</span><span>${escapeHTML(
+          String(value)
+        )}</span></div>`
+    )
+    .join("");
+  return `<details class="agent-action-evidence"><summary>Supporting evidence</summary><div class="agent-evidence-grid">${rows}</div></details>`;
+}
+
+function renderAgentActionDecisionInfo(action) {
+  const parts = [];
+  if (action.decided_by) {
+    parts.push(
+      `<div>Decided by <strong>${escapeHTML(action.decided_by)}</strong> on ${new Date(
+        action.decided_at
+      ).toLocaleString()}</div>`
+    );
+  }
+  if (action.status === "rejected" && action.rejection_reason) {
+    parts.push(`<div>Reason: ${escapeHTML(action.rejection_reason)}</div>`);
+  }
+  if (action.execution_result && action.status === "executed") {
+    parts.push(
+      `<div class="agent-action-result success">${ICONS.lightbulb}<span>${escapeHTML(
+        action.execution_result.detail
+      )} <em>(ref ${escapeHTML(action.execution_result.reference)})</em></span></div>`
+    );
+  }
+  if (action.execution_result && action.status === "failed") {
+    parts.push(
+      `<div class="agent-action-result failure">${escapeHTML(
+        action.execution_result.failure_reason || "Execution failed."
+      )}</div>`
+    );
+  }
+  return parts.length ? `<div class="agent-action-decision">${parts.join("")}</div>` : "";
+}
+
+function renderAgentActionItem(action) {
+  const typeLabel = AGENT_ACTION_TYPE_LABELS[action.action_type] || action.action_type;
+  const icon = AGENT_ACTION_ICONS[action.action_type] || ICONS.info;
+
+  const bodyHtml =
+    action.status === "proposed"
+      ? `
+        <div class="agent-action-params">
+          ${Object.entries(action.proposed_parameters)
+            .map(([key, value]) => renderAgentActionParamField(key, value))
+            .join("")}
+        </div>
+        <div class="agent-action-buttons">
+          <button type="button" class="agent-action-approve-btn" data-action-id="${action.id}">Approve</button>
+          <button type="button" class="agent-action-reject-btn" data-action-id="${action.id}">Reject</button>
+        </div>
+      `
+      : renderAgentActionDecisionInfo(action);
+
+  return `
+    <li class="action-item agent-action-item ${action.status}" data-action-id="${action.id}">
+      <div class="action-icon">${icon}</div>
+      <div class="action-main">
+        <div class="action-top">
+          <span class="action-title">${escapeHTML(typeLabel)}</span>
+          <span class="agent-risk-badge ${action.risk_level}">${action.risk_level} risk</span>
+          <span class="agent-status-badge ${action.status}">${action.status}</span>
+        </div>
+        <p class="action-desc">${escapeHTML(action.business_reason)}</p>
+        <div class="action-recommend">${ICONS.lightbulb}<span>${escapeHTML(action.expected_outcome)}</span></div>
+        ${renderAgentActionEvidence(action.supporting_evidence)}
+        ${bodyHtml}
+      </div>
+    </li>`;
+}
+
+function renderAgentActionsList() {
+  const list = document.getElementById("agent-actions-list");
+  const filtered =
+    state.agentActionsFilter === "all"
+      ? state.agentActions
+      : state.agentActions.filter((a) => a.status === state.agentActionsFilter);
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<li class="empty-state">No ${
+      state.agentActionsFilter === "all" ? "" : state.agentActionsFilter + " "
+    }actions right now.</li>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(renderAgentActionItem).join("");
+
+  list.querySelectorAll(".agent-action-approve-btn").forEach((button) => {
+    button.addEventListener("click", () => approveAgentAction(Number(button.dataset.actionId)));
+  });
+  list.querySelectorAll(".agent-action-reject-btn").forEach((button) => {
+    button.addEventListener("click", () => rejectAgentAction(Number(button.dataset.actionId)));
+  });
+}
+
+function collectEditedParameters(actionId) {
+  const item = document.querySelector(`.agent-action-item[data-action-id="${actionId}"]`);
+  const edited = {};
+  item.querySelectorAll("[data-param]").forEach((el) => {
+    edited[el.dataset.param] = el.dataset.paramType === "number" ? Number(el.value) : el.value;
+  });
+  return edited;
+}
+
+async function approveAgentAction(actionId) {
+  const buttons = document.querySelectorAll(
+    `.agent-action-item[data-action-id="${actionId}"] button`
+  );
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    const response = await fetch(`/api/actions/${actionId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decided_by: AGENT_ACTIONS_DECIDER, edited_parameters: collectEditedParameters(actionId) }),
+    });
+    if (!response.ok) throw new Error(`approve failed: ${response.status}`);
+    await loadAgentActions();
+    await loadAlerts();
+  } catch (err) {
+    console.error(err);
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+async function rejectAgentAction(actionId) {
+  const buttons = document.querySelectorAll(
+    `.agent-action-item[data-action-id="${actionId}"] button`
+  );
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    const response = await fetch(`/api/actions/${actionId}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decided_by: AGENT_ACTIONS_DECIDER }),
+    });
+    if (!response.ok) throw new Error(`reject failed: ${response.status}`);
+    await loadAgentActions();
+  } catch (err) {
+    console.error(err);
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
+
+async function loadAgentActions() {
+  state.agentActions = await fetchJSON("/api/actions");
+  renderAgentActionsSummary(state.agentActions);
+  renderAgentActionsList();
+}
+
+async function generateAgentActions() {
+  try {
+    await fetch("/api/actions/generate", { method: "POST" });
+  } catch (err) {
+    console.error(err);
+  }
+  await loadAgentActions();
+}
+
+document.querySelectorAll("#agent-actions-filter-row button").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll("#agent-actions-filter-row button").forEach((b) => b.classList.remove("active"));
+    button.classList.add("active");
+    state.agentActionsFilter = button.dataset.status;
+    renderAgentActionsList();
+  });
+});
+
+document.getElementById("agent-actions-refresh-btn").addEventListener("click", () => {
+  generateAgentActions().catch((err) => console.error(err));
+});
+
 const POS_ICONS = {
   remove: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
@@ -812,7 +1058,7 @@ document.getElementById("pos-checkout-btn").addEventListener("click", async () =
 
     showReceipt(data);
     resetPosForm();
-    await Promise.all([loadPosProducts(), loadTransactions(), loadDashboard(), loadAlerts()]);
+    await Promise.all([loadPosProducts(), loadTransactions(), loadDashboard(), loadAlerts(), generateAgentActions()]);
   } catch (err) {
     console.error(err);
     errorEl.textContent = "Couldn't reach the server. Please try again.";
@@ -1004,5 +1250,6 @@ sections.forEach((section) => spyObserver.observe(section));
 loadDashboard().catch((err) => console.error(err));
 loadAlerts().catch((err) => console.error(err));
 loadAssistantExamples().catch((err) => console.error(err));
+generateAgentActions().catch((err) => console.error(err));
 loadPosProducts().catch((err) => console.error(err));
 loadTransactions().catch((err) => console.error(err));
