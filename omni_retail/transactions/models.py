@@ -37,6 +37,11 @@ class Cart:
     channel: SalesChannel = SalesChannel.IN_STORE
     discount_type: Optional[DiscountType] = None
     discount_value: float = 0.0
+    # Simulated-payment input only -- never a real card number, never
+    # stored anywhere. Used solely to pick success vs. simulated
+    # decline (see payments/processor.py). POS checkout doesn't set
+    # this, so its payments always succeed exactly as in Phase 5.
+    card_number: Optional[str] = None
 
 
 @dataclass
@@ -55,12 +60,15 @@ class SaleReceipt:
     customer_id: Optional[int]
     customer_name: str
     channel: str
+    status: str  # "completed" | "failed" -- mirrors the Order's actual status
     lines: list[ReceiptLine] = field(default_factory=list)
     subtotal: float = 0.0
     discount_total: float = 0.0
     total: float = 0.0
     payment_method: str = ""
     payment_status: str = ""
+    payment_reference: str = ""
+    failure_reason: Optional[str] = None
 
 
 class TransactionError(Exception):

@@ -239,9 +239,44 @@ class SaleReceiptOut(BaseModel):
     customer_id: int | None
     customer_name: str
     channel: str
+    status: str
     lines: list[ReceiptLineOut]
     subtotal: float
     discount_total: float
     total: float
     payment_method: str
     payment_status: str
+    payment_reference: str
+    failure_reason: str | None = None
+
+
+class StorefrontCheckoutRequest(BaseModel):
+    items: list[CartItemIn]
+    payment_method: str
+    channel: str = "online"
+    discount_type: str | None = None
+    discount_value: float = 0.0
+    card_number: str | None = None
+    idempotency_key: str | None = None
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CustomerMeOut(BaseModel):
+    customer_id: int
+    name: str
+    email: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    customer: CustomerMeOut

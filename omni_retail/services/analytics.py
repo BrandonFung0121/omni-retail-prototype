@@ -389,6 +389,27 @@ def list_products(session: Session) -> list[ProductCatalogEntry]:
     ]
 
 
+def get_product(session: Session, product_id: int) -> Optional[ProductCatalogEntry]:
+    """Single product with live stock -- for a Product Details page."""
+    row = (
+        session.execute(
+            select(Product, Inventory).join(Inventory, Inventory.product_id == Product.id).where(Product.id == product_id)
+        )
+    ).first()
+    if row is None:
+        return None
+    product, inventory = row
+    return ProductCatalogEntry(
+        product_id=product.id,
+        name=product.name,
+        category=product.category,
+        selling_price=float(product.selling_price),
+        current_stock=inventory.current_stock,
+        reorder_threshold=inventory.reorder_threshold,
+        status=inventory.status.value,
+    )
+
+
 @dataclass
 class CustomerSummary:
     customer_id: int
@@ -424,10 +445,13 @@ def list_orders(
     start: Optional[date] = None,
     end: Optional[date] = None,
     status: Optional[OrderStatus] = None,
+    customer_id: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[OrderSummary]:
-    """Recent orders/transactions, newest first -- for the Transactions view."""
+    """Recent orders/transactions, newest first -- for the admin
+    Transactions view, or (with customer_id) a customer's own "My
+    Orders" history on the storefront."""
     stmt = (
         select(Order)
         .options(selectinload(Order.items), selectinload(Order.customer), selectinload(Order.payment))
@@ -437,6 +461,8 @@ def list_orders(
     )
     if status is not None:
         stmt = stmt.where(Order.status == status)
+    if customer_id is not None:
+        stmt = stmt.where(Order.customer_id == customer_id)
     stmt = _apply_date_filter(stmt, Order.order_datetime, start, end)
     orders = session.execute(stmt).scalars().all()
 

@@ -201,3 +201,16 @@ def test_static_assets_are_not_forced_no_cache(client):
     response = client.get("/app.js")
     assert response.status_code == 200
     assert response.headers.get("cache-control") != "no-cache, no-store, must-revalidate"
+
+
+def test_bare_store_path_redirects_to_storefront(client):
+    """Starlette's Mount("/store", ...) only matches "/store/..." --
+    the bare "/store" (what a typed URL or a plain href="/store" link
+    produces) must not 404."""
+    response = client.get("/store", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/store/"
+
+    followed = client.get("/store", follow_redirects=True)
+    assert followed.status_code == 200
+    assert "OMNI Retail Shop" in followed.text
