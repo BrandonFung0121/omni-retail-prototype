@@ -6,9 +6,15 @@ from sqlalchemy.orm import Session
 
 from omni_retail import services
 from omni_retail.api.dependencies import get_session
-from omni_retail.api.schemas import ProductPerformanceOut
+from omni_retail.api.schemas import ProductCatalogEntryOut, ProductPerformanceOut
 
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+
+@router.get("", response_model=list[ProductCatalogEntryOut])
+def get_products(session: Session = Depends(get_session)) -> list[ProductCatalogEntryOut]:
+    """Full catalog with live stock, for the POS product picker."""
+    return services.list_products(session)
 
 
 @router.get("/top", response_model=list[ProductPerformanceOut])

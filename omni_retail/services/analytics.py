@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from omni_retail.models import (
     Customer,
@@ -358,3 +358,162 @@ def website_traffic_trend(
             )
         )
     return points
+
+
+@dataclass
+class ProductCatalogEntry:
+    product_id: int
+    name: str
+    category: str
+    selling_price: float
+    current_stock: int
+    reorder_threshold: int
+    status: str
+
+
+def list_products(session: Session) -> list[ProductCatalogEntry]:
+    """Full catalog with live stock -- for product-selection UIs (POS, storefront)."""
+    stmt = select(Product, Inventory).join(Inventory, Inventory.product_id == Product.id).order_by(Product.name)
+    rows = session.execute(stmt).all()
+    return [
+        ProductCatalogEntry(
+            product_id=product.id,
+            name=product.name,
+            category=product.category,
+            selling_price=float(product.selling_price),
+            current_stock=inventory.current_stock,
+            reorder_threshold=inventory.reorder_threshold,
+            status=inventory.status.value,
+        )
+        for product, inventory in rows
+    ]
+
+
+@dataclass
+class CustomerSummary:
+    customer_id: int
+    name: str
+    email: str
+
+
+def search_customers(session: Session, query: str = "", limit: int = 10) -> list[CustomerSummary]:
+    """Name/email typeahead -- for customer-selection UIs (POS, storefront)."""
+    stmt = select(Customer).order_by(Customer.name).limit(limit)
+    if query:
+        pattern = f"%{query.lower()}%"
+        stmt = stmt.where((func.lower(Customer.name).like(pattern)) | (func.lower(Customer.email).like(pattern)))
+    customers = session.execute(stmt).scalars().all()
+    return [CustomerSummary(customer_id=c.id, name=c.name, email=c.email) for c in customers]
+
+
+@dataclass
+class OrderSummary:
+    order_id: int
+    order_datetime: datetime
+    customer_name: str
+    status: str
+    channel: str
+    item_count: int
+    total: float
+    payment_method: Optional[str]
+    payment_status: Optional[str]
+
+
+def list_orders(
+    session: Session,
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+    status: Optional[OrderStatus] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[OrderSummary]:
+    """Recent orders/transactions, newest first -- for the Transactions view."""
+    stmt = (
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.customer), selectinload(Order.payment))
+        .order_by(Order.order_datetime.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if status is not None:
+        stmt = stmt.where(Order.status == status)
+    stmt = _apply_date_filter(stmt, Order.order_datetime, start, end)
+    orders = session.execute(stmt).scalars().all()
+
+    return [
+        OrderSummary(
+            order_id=order.id,
+            order_datetime=order.order_datetime,
+            customer_name=order.customer.name if order.customer else "Guest",
+            status=order.status.value,
+            channel=order.channel.value,
+            item_count=sum(item.quantity for item in order.items),
+            total=round(order.order_value, 2),
+            payment_method=order.payment.method.value if order.payment else None,
+            payment_status=order.payment.status.value if order.payment else None,
+        )
+        for order in orders
+    ]
+
+
+@dataclass
+class ReceiptLine:
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+
+@dataclass
+class OrderDetail:
+    order_id: int
+    order_datetime: datetime
+    customer_id: Optional[int]
+    customer_name: str
+    status: str
+    channel: str
+    lines: list[ReceiptLine]
+    subtotal: float
+    discount_total: float
+    total: float
+    payment_method: Optional[str]
+    payment_status: Optional[str]
+
+
+def get_order(session: Session, order_id: int) -> Optional[OrderDetail]:
+    """Full line-item detail for one order -- for a receipt view."""
+    order = session.get(
+        Order,
+        order_id,
+        options=[selectinload(Order.items).selectinload(OrderItem.product), selectinload(Order.customer), selectinload(Order.payment)],
+    )
+    if order is None:
+        return None
+
+    lines = [
+        ReceiptLine(
+            product_id=item.product_id,
+            product_name=item.product.name,
+            quantity=item.quantity,
+            unit_price=float(item.unit_price),
+            line_total=round(item.line_total, 2),
+        )
+        for item in order.items
+    ]
+    discount_total = float(order.discount_total)
+    total = round(order.order_value, 2)
+    return OrderDetail(
+        order_id=order.id,
+        order_datetime=order.order_datetime,
+        customer_id=order.customer_id,
+        customer_name=order.customer.name if order.customer else "Guest",
+        status=order.status.value,
+        channel=order.channel.value,
+        lines=lines,
+        subtotal=round(total + discount_total, 2),
+        discount_total=discount_total,
+        total=total,
+        payment_method=order.payment.method.value if order.payment else None,
+        payment_status=order.payment.status.value if order.payment else None,
+    )
