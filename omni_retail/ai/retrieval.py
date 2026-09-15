@@ -10,11 +10,12 @@ without modification.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
 from omni_retail import services
+from omni_retail.ai.intents import Intent
 from omni_retail.automation import config, rules
 from omni_retail.automation.engine import run_all_rules
 
@@ -140,3 +141,18 @@ def gather_traffic_conversion(session: Session, today: Optional[date] = None) ->
 
 def gather_business_issues_summary(session: Session, today: Optional[date] = None) -> dict[str, Any]:
     return {"alerts": run_all_rules(session, today=today)}
+
+
+# One gatherer per intent -- shared by agent.py's deterministic pipeline
+# and ai/llm/tools.py's read-only tool wrappers, so both call the exact
+# same evidence-gathering code (no divergence between the two paths).
+RETRIEVERS: dict[Intent, Callable[[Session, Optional[date]], dict[str, Any]]] = {
+    Intent.REVENUE_EXPLANATION: gather_revenue_explanation,
+    Intent.PRODUCT_PERFORMANCE: gather_product_performance,
+    Intent.RESTOCK_PRIORITY: gather_restock_priority,
+    Intent.TOP_CUSTOMERS: gather_top_customers,
+    Intent.CHURN_RISK: gather_churn_risk,
+    Intent.EXPENSE_ANOMALIES: gather_expense_anomalies,
+    Intent.TRAFFIC_CONVERSION: gather_traffic_conversion,
+    Intent.BUSINESS_ISSUES_SUMMARY: gather_business_issues_summary,
+}

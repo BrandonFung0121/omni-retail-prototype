@@ -150,6 +150,7 @@ class AgentResponseOut(BaseModel):
     recommended_actions: list[str]
     related_alert_ids: list[str]
     generated_by: str
+    tool_trace: list[dict[str, Any]] = []
 
 
 class ExampleQuestionsResponse(BaseModel):

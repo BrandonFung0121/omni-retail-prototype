@@ -75,7 +75,7 @@ def test_retrieval_failure_is_caught_and_returns_low_confidence(session, monkeyp
     def boom(_session, _today):
         raise RuntimeError("simulated failure")
 
-    monkeypatch.setitem(agent._RETRIEVERS, Intent.REVENUE_EXPLANATION, boom)
+    monkeypatch.setitem(agent.RETRIEVERS, Intent.REVENUE_EXPLANATION, boom)
 
     response = agent.answer_question(session, "Why did revenue change?")
     assert response.confidence == "low"

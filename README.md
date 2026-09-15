@@ -33,6 +33,13 @@ them itself. An admin reviews the evidence, can edit the proposed
 parameters, and only then approves or rejects; approval triggers a
 simulated external action (email, purchase order) behind a swappable
 executor interface, and every step is kept in an auditable history.
+**Phase 8** (done): an optional, opt-in real LLM agent mode for the AI
+Business Analyst -- question -> LLM reasoning -> tool selection -> real
+tool execution -> LLM synthesis -> grounded answer, in place of the
+fixed keyword classifier. The Phase 4 deterministic pipeline remains
+the permanent default and fallback; the LLM's only write-shaped
+capability is proposing a Phase 7 action, and it structurally cannot
+approve or execute one.
 
 ## Project layout
 
@@ -306,6 +313,64 @@ is read-only. Phase 7 (below) is the first part of this codebase where
 the AI's output can lead to a write, and even then only through an
 explicit human approval step.
 
+## LLM agent mode (Phase 8)
+
+`omni_retail/ai/llm/` is an optional second path through the AI
+Business Analyst, alongside (never instead of) the Phase 4 pipeline:
+
+```
+User question -> LLM reasoning -> tool selection -> tool execution
+    -> tool result -> LLM reasoning/synthesis -> grounded answer
+```
+
+**Opt-in and fail-safe by construction.** It only activates when
+`OMNI_LLM_ENABLED=true` *and* `ANTHROPIC_API_KEY` is set. Missing
+either, a missing `anthropic` package, a provider timeout/failure, or
+the bounded tool-call loop running out its budget all fall straight
+back to the deterministic Phase 4 pipeline (`ai/agent.py`) -- the app
+never breaks and never silently returns an ungrounded answer. A
+genuine programming bug is deliberately *not* caught by that fallback:
+`ai/agent.py` only catches `LLMProviderError` and
+`OrchestrationLimitExceeded` by name, so a real bug stays visible
+instead of masquerading as "the LLM was unavailable."
+
+**Provider-abstracted.** `ai/llm/provider.py` defines a vendor-neutral
+`LLMProvider` interface; `ai/llm/anthropic_provider.py` is the only
+file that imports the `anthropic` SDK. Swapping or adding a provider
+means writing one more class and wiring it into
+`ai/llm/__init__.py::get_provider()` -- the orchestrator and `agent.py`
+never change.
+
+**Tools reuse Phase 4 and Phase 7 verbatim -- nothing is duplicated.**
+`ai/llm/tools.py` registers:
+- 8 read-only tools, one per Phase 4 intent, each calling the same
+  `ai/retrieval.py` gatherer and `TemplateAnswerSynthesizer` the
+  deterministic pipeline uses, so the LLM's evidence is identical to
+  what a human would see from the fixed pipeline.
+- `search_customers`, `get_order`, `get_product` -- thin read-only
+  wrappers around `services/analytics.py`, for drilling into a specific
+  record.
+- `propose_action` -- the one write-shaped tool. It can only call
+  `actions/service.py::create_manual_proposal()`, which can only
+  construct an `AgentAction` with `status=PROPOSED` (hardcoded, not a
+  parameter). **`approve_action` and `execute_action` are never
+  registered as tools**, so no model output can express approving or
+  executing anything -- combined with `execute_action()`'s existing
+  `ActionNotApprovedError` guard, an LLM-originated proposal goes
+  through the exact same human-review gate as a Phase 7 rule-derived
+  one.
+
+**Bounded and traced.** The loop in `ai/llm/orchestrator.py` stops
+after `OMNI_LLM_MAX_ITERATIONS` round trips or `OMNI_LLM_MAX_TOOL_CALLS`
+total tool calls, whichever comes first, raising
+`OrchestrationLimitExceeded` (caught by `agent.py`) rather than running
+unbounded. An unknown or malformed tool call from the model is
+recoverable *within* the loop -- it's fed back as a tool error result,
+not treated as a fatal failure. Every tool call is logged and recorded
+on the response as `tool_trace` (empty for the deterministic path).
+
+See `.env.example` for the full list of environment variables.
+
 ## Agent actions & human approval
 
 `omni_retail/actions/` turns open alerts (from the same
@@ -426,8 +491,8 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 
 ## Next phases
 
-- Real LLM-powered synthesis (`ai/synthesis.py`'s `AnswerSynthesizer` interface is ready for it) for more natural phrasing, multi-turn follow-up questions, and open-ended "why" investigation beyond the 8 fixed intents.
-- Real tool-calling: let an LLM choose which `retrieval.py` function(s) to call instead of the fixed keyword classifier, and potentially propose actions directly rather than only via the fixed alert-type mapping in `actions/proposals.py`.
+- Multi-turn conversation (follow-up questions that reference earlier answers) for the LLM agent mode, instead of one question per orchestration run.
+- A second `LLMProvider` implementation to prove the abstraction in `ai/llm/provider.py` genuinely holds across vendors.
 - Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
 - Multi-agent workflows and real external integrations behind the existing `ActionExecutor` interface (actually sending the win-back email, filing the purchase order with a supplier/ERP API).
 - Asynchronous/queued execution once approved, instead of the current synchronous approve-then-execute in one request.
