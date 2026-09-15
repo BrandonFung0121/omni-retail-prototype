@@ -11,8 +11,10 @@ core business-logic/service layer.
 dashboard that consumes it.
 **Phase 3** (done): a rules-based automation/alerting layer (the
 Action Center) that detects business conditions worth a human's
-attention. AI-assisted investigation and recommendations build on top
-of this in a later phase.
+attention.
+**Phase 4** (done): an AI Business Analyst agent that answers
+natural-language questions, grounded in the same analytics/alerting
+data -- read-only, no data modification or external actions yet.
 
 ## Project layout
 
@@ -40,6 +42,11 @@ omni_retail/
     config.py               # per-rule thresholds
     rules.py                  # one detect_* function per business condition
     engine.py                  # runs every rule, returns alerts sorted by severity
+  ai/
+    intents.py             # keyword classifier: question -> one of 8 intents
+    retrieval.py             # one gather_* "tool" per intent, calling services/automation
+    synthesis.py               # evidence -> natural-language answer (pluggable; template today)
+    agent.py                    # classify -> retrieve -> synthesize, with graceful fallbacks
 dashboard/
   index.html, styles.css, app.js   # static JS dashboard (Chart.js via CDN,
                                      # fetches the JSON API, no build step)
@@ -50,6 +57,7 @@ tests/
   test_analytics.py     # business-logic tests against the seeded dataset
   test_api.py            # API tests (verify responses match the service layer)
   test_automation.py      # rule threshold-crossing tests (deterministic, monkeypatched)
+  test_ai_agent.py         # intent classification, grounded-answer, and error-handling tests
 ```
 
 ## Getting started
@@ -89,6 +97,8 @@ all-time figures. Every route is a thin wrapper around
 | `GET /api/website/conversion-rate` | conversion rate |
 | `GET /api/alerts?severity=&type=` | currently-open alerts, most severe first |
 | `GET /api/alerts/summary` | alert counts by severity and by type |
+| `POST /api/assistant/ask` | ask the AI Business Analyst a question (JSON body: `{"question": "..."}`) |
+| `GET /api/assistant/examples` | example questions the agent can currently answer |
 
 ## Automation & alerting
 
@@ -114,17 +124,55 @@ the seeded dataset. The dashboard's **Action Center** (top of the
 Overview page) lists every open alert with a severity filter; the
 sidebar badge shows the count of critical + warning alerts.
 
+## AI Business Analyst
+
+`omni_retail/ai/` answers natural-language business questions, grounded
+in the same data the dashboard and Action Center already use. It's a
+three-stage, read-only pipeline:
+
+1. **`intents.py`** classifies the question into one of 8 supported
+   topics with keyword matching -- not an LLM call. The system, not a
+   language model, decides what gets investigated, so the agent can't
+   skip investigation or look at the wrong data.
+2. **`retrieval.py`** has one `gather_*` function per intent. Each is
+   a thin, read-only call into `services/analytics.py` and/or
+   `automation/rules.py` -- no business number is computed twice.
+   Several intents cross-reference more than one source (e.g. "which
+   customers are most valuable" also checks the churn-risk rule and
+   flags any top spender who hasn't ordered recently).
+3. **`synthesis.py`** turns the retrieved evidence into an answer.
+   `TemplateAnswerSynthesizer` (used today) builds it deterministically
+   from the numbers, with no external dependency. The interface is
+   swappable: a future `LLMAnswerSynthesizer` would implement the same
+   `synthesize(question, intent, evidence)` contract, using the
+   identical evidence dict as grounding context, and nothing else in
+   the pipeline would need to change.
+
+`agent.py` wires the three stages together and handles failure
+gracefully: an unrecognized question gets a helpful list of what it
+can answer (not an error), and a retrieval failure is caught and
+returns a low-confidence response instead of a 500.
+
+**This phase is analysis only.** Every `gather_*` function is
+read-only; there is no path from a question to a database write or an
+external action. `retrieval.py`'s functions are already shaped like
+tools (one function, one data need), so a later phase adding real LLM
+tool-calling, agent actions, human-approval gates, or multi-agent
+workflows would extend this package rather than restructure it.
+
 ## Dashboard
 
 A single-page dashboard (`dashboard/`) served by the same FastAPI app:
-KPI cards with period-over-period deltas, a revenue/orders trend chart,
-top products and high-value customer tables, low/out-of-stock
-inventory alerts, an expense breakdown donut, and a website
-traffic/conversion trend chart. A 7D/30D/90D range picker re-fetches
-everything for the selected window. It's plain HTML/CSS/JS (Chart.js
-via CDN, no build step) so it's easy to run, and talks to the API only
-through `fetch()` — swapping in a framework-based frontend later
-wouldn't require touching the backend.
+an Action Center, an AI Business Analyst chat panel, KPI cards with
+period-over-period deltas, a revenue/orders trend chart, top products
+and high-value customer tables, low/out-of-stock inventory alerts, an
+expense breakdown donut, and a website traffic/conversion trend chart.
+A 7D/30D/90D range picker re-fetches everything for the selected
+window (the Action Center and AI Assistant use their own
+per-rule/per-question periods, independent of that picker). It's plain
+HTML/CSS/JS (Chart.js via CDN, no build step) so it's easy to run, and
+talks to the API only through `fetch()` — swapping in a
+framework-based frontend later wouldn't require touching the backend.
 
 ## Data model
 
@@ -165,6 +213,8 @@ All KPI definitions live in [`omni_retail/services/analytics.py`](omni_retail/se
 
 ## Next phases
 
-- AI-assisted investigation: an agent that can call `automation/rules.py` or `/api/alerts`, explain *why* an alert fired, and recommend or execute a next step.
-- Natural-language business questions and AI-generated summaries.
+- Real LLM-powered synthesis (`ai/synthesis.py`'s `AnswerSynthesizer` interface is ready for it) for more natural phrasing, multi-turn follow-up questions, and open-ended "why" investigation beyond the 8 fixed intents.
+- Real tool-calling: let an LLM choose which `retrieval.py` function(s) to call instead of the fixed keyword classifier.
+- Agent actions with human approval (e.g. drafting a reorder, a win-back email) -- still no unsupervised writes.
 - Anomaly detection, forecasting, and customer segmentation beyond fixed thresholds.
+- Multi-agent workflows and external integrations (e.g. actually sending the win-back email, filing the reorder).
