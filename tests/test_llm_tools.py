@@ -86,6 +86,21 @@ def test_search_customers_tool(session):
         assert {"customer_id", "name", "email"} <= set(data[0])
 
 
+def test_search_customers_limit_over_maximum_is_rejected(session):
+    with pytest.raises(ToolArgumentError):
+        dispatch_tool(session, "search_customers", {"limit": 51}, question="q", today=None)
+
+
+def test_search_customers_limit_at_maximum_is_allowed(session):
+    payload = dispatch_tool(session, "search_customers", {"limit": 50}, question="q", today=None)
+    assert isinstance(json.loads(payload), list)
+
+
+def test_search_customers_limit_below_minimum_is_rejected(session):
+    with pytest.raises(ToolArgumentError):
+        dispatch_tool(session, "search_customers", {"limit": 0}, question="q", today=None)
+
+
 def test_get_order_tool_not_found(session):
     payload = dispatch_tool(session, "get_order", {"order_id": 999999999}, question="q", today=None)
     data = json.loads(payload)
@@ -140,6 +155,76 @@ def test_propose_action_invalid_enum_value_is_rejected(fresh_session):
             question="q",
             today=None,
         )
+
+
+def test_propose_action_with_valid_customer_and_product_id_succeeds(fresh_session):
+    from omni_retail import services
+
+    customers = services.search_customers(fresh_session, limit=1)
+    products = services.list_products(fresh_session)
+    assert customers and products, "seeded data should include a customer and a product"
+
+    payload = dispatch_tool(
+        fresh_session,
+        "propose_action",
+        {
+            "action_type": "followup_task",
+            "business_reason": "Grounded in real records.",
+            "expected_outcome": "Resolved.",
+            "risk_level": "low",
+            "customer_id": customers[0].customer_id,
+            "product_id": products[0].product_id,
+        },
+        question="q",
+        today=None,
+    )
+    data = json.loads(payload)
+    action = fresh_session.get(AgentAction, data["action_id"])
+    assert action.status == ActionStatus.PROPOSED
+    assert action.customer_id == customers[0].customer_id
+    assert action.product_id == products[0].product_id
+
+
+def test_propose_action_invalid_customer_id_is_rejected_and_creates_no_action(fresh_session):
+    before = fresh_session.query(AgentAction).count()
+
+    with pytest.raises(ToolArgumentError):
+        dispatch_tool(
+            fresh_session,
+            "propose_action",
+            {
+                "action_type": "followup_task",
+                "business_reason": "x",
+                "expected_outcome": "y",
+                "risk_level": "low",
+                "customer_id": 999999999,
+            },
+            question="q",
+            today=None,
+        )
+
+    assert fresh_session.query(AgentAction).count() == before
+
+
+def test_propose_action_invalid_product_id_is_rejected_and_creates_no_action(fresh_session):
+    before = fresh_session.query(AgentAction).count()
+
+    with pytest.raises(ToolArgumentError):
+        dispatch_tool(
+            fresh_session,
+            "propose_action",
+            {
+                "action_type": "restock_request",
+                "business_reason": "x",
+                "expected_outcome": "y",
+                "risk_level": "low",
+                "product_id": 999999999,
+            },
+            question="q",
+            today=None,
+        )
+
+    assert fresh_session.query(AgentAction).count() == before
 
 
 def test_llm_proposed_action_still_requires_human_approval_before_execution(fresh_session):

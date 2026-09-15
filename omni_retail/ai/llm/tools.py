@@ -36,7 +36,7 @@ from omni_retail.actions.service import create_manual_proposal
 from omni_retail.ai.intents import Intent
 from omni_retail.ai.retrieval import RETRIEVERS
 from omni_retail.ai.synthesis import TemplateAnswerSynthesizer
-from omni_retail.models import ActionType, RiskLevel
+from omni_retail.models import ActionType, Customer, RiskLevel
 
 
 class ToolError(Exception):
@@ -109,6 +109,13 @@ def _check_schema(schema: dict[str, Any], arguments: dict[str, Any], tool_name: 
         if enum_values is not None and value not in enum_values:
             raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be one of {enum_values}, got {value!r}.")
 
+        minimum = prop_schema.get("minimum")
+        if minimum is not None and isinstance(value, (int, float)) and not isinstance(value, bool) and value < minimum:
+            raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be >= {minimum}, got {value!r}.")
+        maximum = prop_schema.get("maximum")
+        if maximum is not None and isinstance(value, (int, float)) and not isinstance(value, bool) and value > maximum:
+            raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be <= {maximum}, got {value!r}.")
+
 
 def _make_evidence_handler(intent: Intent) -> Callable[..., Any]:
     gather = RETRIEVERS[intent]
@@ -147,14 +154,28 @@ def _handle_propose_action(session: Session, arguments: dict[str, Any], *, quest
     except ValueError as exc:
         raise ToolArgumentError(f"propose_action: {exc}") from exc
 
+    # Reject a nonexistent customer/product before any AgentAction row is
+    # created -- a bad id from the model must never persist a dangling
+    # reference. product_id reuses the existing get_product() lookup (no
+    # new business logic); there's no equivalent service-layer function for
+    # a single customer by id, so this is a direct, read-only existence
+    # check, not a duplicated computation.
+    customer_id = arguments.get("customer_id")
+    if customer_id is not None and session.get(Customer, customer_id) is None:
+        raise ToolArgumentError(f"propose_action: no customer with id {customer_id}.")
+
+    product_id = arguments.get("product_id")
+    if product_id is not None and services.get_product(session, product_id) is None:
+        raise ToolArgumentError(f"propose_action: no product with id {product_id}.")
+
     draft = ProposalDraft(
         action_type=action_type,
         business_reason=arguments["business_reason"],
         proposed_parameters=arguments.get("proposed_parameters") or {},
         expected_outcome=arguments["expected_outcome"],
         risk_level=risk_level,
-        customer_id=arguments.get("customer_id"),
-        product_id=arguments.get("product_id"),
+        customer_id=customer_id,
+        product_id=product_id,
     )
     action = create_manual_proposal(session, draft)
     return {
@@ -195,7 +216,7 @@ TOOL_REGISTRY["search_customers"] = ToolSpec(
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Name or email substring to search for. Empty returns the first customers alphabetically."},
-            "limit": {"type": "integer", "description": "Max results to return (default 10)."},
+            "limit": {"type": "integer", "description": "Max results to return (default 10, maximum 50).", "minimum": 1, "maximum": 50},
         },
         "required": [],
     },
