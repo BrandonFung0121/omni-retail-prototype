@@ -4,7 +4,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from omni_retail.api.routers import customers, expenses, inventory, kpis, orders, products, profit, revenue, website
+from omni_retail.api.routers import (
+    alerts,
+    customers,
+    expenses,
+    inventory,
+    kpis,
+    orders,
+    products,
+    profit,
+    revenue,
+    website,
+)
 
 ROUTERS = (
     kpis.router,
@@ -16,6 +27,7 @@ ROUTERS = (
     expenses.router,
     profit.router,
     website.router,
+    alerts.router,
 )
 
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent.parent / "dashboard"

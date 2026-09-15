@@ -189,6 +189,26 @@ svg {
   opacity: 1;
 }
 
+.nav-link {
+  position: relative;
+}
+
+.nav-badge {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--bad);
+  color: white;
+  border-radius: 999px;
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.nav-badge:empty {
+  display: none;
+}
+
 .sidebar-footer {
   margin-top: auto;
   display: flex;
@@ -423,7 +443,8 @@ svg {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
   margin-bottom: var(--space-5);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--border);
@@ -588,6 +609,152 @@ svg {
 .stat-chip.low_stock .dot { background: var(--warn); }
 .stat-chip.out_of_stock { background: var(--bad-soft); color: var(--bad); }
 .stat-chip.out_of_stock .dot { background: var(--bad); }
+
+.stat-chip.critical { background: var(--bad-soft); color: var(--bad); }
+.stat-chip.critical .dot { background: var(--bad); }
+.stat-chip.warning { background: var(--warn-soft); color: var(--warn); }
+.stat-chip.warning .dot { background: var(--warn); }
+.stat-chip.info { background: #e8f0fe; color: var(--accent-blue); }
+.stat-chip.info .dot { background: var(--accent-blue); }
+
+/* ---------- Action Center ---------- */
+.alerts-panel {
+  margin-bottom: var(--space-6);
+}
+
+.alert-filter-row {
+  display: flex;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.alert-filter-row button {
+  border: none;
+  background: transparent;
+  padding: 6px 13px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.alert-filter-row button:hover {
+  color: var(--text);
+}
+
+.alert-filter-row button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+.action-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.action-item {
+  display: flex;
+  gap: var(--space-3);
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+}
+
+.action-item.critical { border-left-color: var(--bad); }
+.action-item.warning { border-left-color: var(--warn); }
+.action-item.info { border-left-color: var(--accent-blue); }
+
+.action-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.action-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.action-item.critical .action-icon { background: var(--bad-soft); color: var(--bad); }
+.action-item.warning .action-icon { background: var(--warn-soft); color: var(--warn); }
+.action-item.info .action-icon { background: #e8f0fe; color: var(--accent-blue); }
+
+.action-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 3px;
+}
+
+.action-title {
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.severity-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.severity-badge.critical { background: var(--bad-soft); color: var(--bad); }
+.severity-badge.warning { background: var(--warn-soft); color: var(--warn); }
+.severity-badge.info { background: #e8f0fe; color: var(--accent-blue); }
+
+.action-desc {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.action-recommend {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.action-recommend svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 
 .alert-list {
   list-style: none;

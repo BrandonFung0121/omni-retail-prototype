@@ -110,3 +110,45 @@ def test_date_range_filters_are_applied(client):
     narrow = client.get("/api/revenue", params={"start": "2999-01-01", "end": "2999-01-02"}).json()["revenue"]
     assert narrow == 0.0
     assert full > 0.0
+
+
+def test_alerts_endpoint_matches_engine(client, session):
+    from omni_retail.automation import run_all_rules
+
+    response = client.get("/api/alerts")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == len(run_all_rules(session))
+    assert body == sorted(body, key=lambda a: {"critical": 2, "warning": 1, "info": 0}[a["severity"]], reverse=True)
+    for alert in body:
+        assert alert["id"]
+        assert alert["type"]
+        assert alert["severity"] in {"critical", "warning", "info"}
+        assert alert["supporting_data"]
+
+
+def test_alerts_endpoint_filters_by_severity(client):
+    response = client.get("/api/alerts", params={"severity": "critical"})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) > 0
+    assert all(a["severity"] == "critical" for a in body)
+
+
+def test_alerts_endpoint_filters_by_type(client):
+    response = client.get("/api/alerts", params={"type": "low_stock"})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) > 0
+    assert all(a["type"] == "low_stock" for a in body)
+
+
+def test_alerts_summary_endpoint(client):
+    alerts = client.get("/api/alerts").json()
+    summary = client.get("/api/alerts/summary").json()
+
+    assert summary["total"] == len(alerts)
+    assert summary["critical"] == sum(1 for a in alerts if a["severity"] == "critical")
+    assert summary["warning"] == sum(1 for a in alerts if a["severity"] == "warning")
+    assert summary["info"] == sum(1 for a in alerts if a["severity"] == "info")
+    assert sum(summary["by_type"].values()) == summary["total"]

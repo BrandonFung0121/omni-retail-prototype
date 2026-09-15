@@ -228,6 +228,34 @@ def high_value_customers(
     return results
 
 
+def order_status_counts(
+    session: Session, start: Optional[date] = None, end: Optional[date] = None
+) -> dict[OrderStatus, int]:
+    """Order counts by status, across ALL statuses (not just completed).
+
+    Unlike order_count(), this includes cancelled/pending/refunded
+    orders -- it answers "what happened to orders placed in this
+    period", which cancellation/failure-pattern monitoring needs.
+    """
+    stmt = select(Order.status, func.count(Order.id)).group_by(Order.status)
+    stmt = _apply_date_filter(stmt, Order.order_datetime, start, end)
+    rows = session.execute(stmt).all()
+    counts = {status: 0 for status in OrderStatus}
+    for status, count in rows:
+        counts[status] = int(count)
+    return counts
+
+
+def last_order_date(session: Session, customer_id: int) -> Optional[date]:
+    """Most recent completed-order date for a customer, or None if they have none."""
+    stmt = (
+        select(func.max(Order.order_datetime))
+        .where(Order.customer_id == customer_id, Order.status.in_(REVENUE_STATUSES))
+    )
+    result = session.execute(stmt).scalar_one()
+    return result.date() if result else None
+
+
 def inventory_status_counts(session: Session) -> dict[InventoryStatus, int]:
     counts = {status: 0 for status in InventoryStatus}
     for inventory in session.execute(select(Inventory)).scalars().all():

@@ -15,10 +15,20 @@ const AVATAR_COLORS = ["#4f46e5", "#2563eb", "#7c3aed", "#059669", "#0891b2", "#
 const ICONS = {
   lowStock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 2.6 17.5A1.8 1.8 0 0 0 4.2 20h15.6a1.8 1.8 0 0 0 1.6-2.5L13.7 3.9a1.8 1.8 0 0 0-3.4 0Z"/><path d="M12 9.5v4M12 16.5h.01"/></svg>`,
   outOfStock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>`,
+  info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>`,
+  lightbulb: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.45.9 1.15.9 1.9V16h5.2v-.2c0-.75.3-1.45.9-1.9A6 6 0 0 0 12 3Z"/></svg>`,
+};
+
+const SEVERITY_ICON = {
+  critical: ICONS.outOfStock,
+  warning: ICONS.lowStock,
+  info: ICONS.info,
 };
 
 const state = {
   rangeDays: 30,
+  alertFilter: "all",
+  alerts: [],
   charts: {},
 };
 
@@ -370,6 +380,64 @@ async function loadTrafficTrend(range) {
   });
 }
 
+function renderAlertSummary(alerts) {
+  const critical = alerts.filter((a) => a.severity === "critical").length;
+  const warning = alerts.filter((a) => a.severity === "warning").length;
+  const info = alerts.filter((a) => a.severity === "info").length;
+
+  document.getElementById("alert-summary").innerHTML = `
+    <span class="stat-chip critical"><span class="dot"></span>${critical} critical</span>
+    <span class="stat-chip warning"><span class="dot"></span>${warning} warning</span>
+    <span class="stat-chip info"><span class="dot"></span>${info} info</span>
+  `;
+
+  const badge = document.getElementById("nav-alert-badge");
+  const urgent = critical + warning;
+  badge.textContent = urgent > 0 ? String(urgent) : "";
+}
+
+function renderAlertList() {
+  const list = document.getElementById("alert-list");
+  const filtered = state.alertFilter === "all" ? state.alerts : state.alerts.filter((a) => a.severity === state.alertFilter);
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<li class="empty-state">No ${state.alertFilter === "all" ? "" : state.alertFilter + " "}alerts right now — everything looks healthy.</li>`;
+    return;
+  }
+
+  list.innerHTML = filtered
+    .map(
+      (a) => `
+      <li class="action-item ${a.severity}">
+        <div class="action-icon">${SEVERITY_ICON[a.severity] || ICONS.info}</div>
+        <div class="action-main">
+          <div class="action-top">
+            <span class="action-title">${escapeHTML(a.title)}</span>
+            <span class="severity-badge ${a.severity}">${a.severity}</span>
+          </div>
+          <p class="action-desc">${escapeHTML(a.description)}</p>
+          <div class="action-recommend">${ICONS.lightbulb}<span>${escapeHTML(a.recommended_action)}</span></div>
+        </div>
+      </li>`
+    )
+    .join("");
+}
+
+async function loadAlerts() {
+  state.alerts = await fetchJSON("/api/alerts");
+  renderAlertSummary(state.alerts);
+  renderAlertList();
+}
+
+document.querySelectorAll("#alert-filter-row button").forEach((button) => {
+  button.addEventListener("click", () => {
+    document.querySelectorAll("#alert-filter-row button").forEach((b) => b.classList.remove("active"));
+    button.classList.add("active");
+    state.alertFilter = button.dataset.severity;
+    renderAlertList();
+  });
+});
+
 async function loadDashboard() {
   const current = dateRange(state.rangeDays, 0);
   const previous = dateRange(state.rangeDays, state.rangeDays);
@@ -433,3 +501,4 @@ const spyObserver = new IntersectionObserver(
 sections.forEach((section) => spyObserver.observe(section));
 
 loadDashboard().catch((err) => console.error(err));
+loadAlerts().catch((err) => console.error(err));

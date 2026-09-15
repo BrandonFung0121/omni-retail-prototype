@@ -26,6 +26,13 @@
       </div>
 
       <nav class="nav">
+        <span class="nav-section-label">Action Center</span>
+        <a href="#alerts" class="nav-link" data-nav="alerts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c-3.6 0-5.5 2.9-5.5 6.5v3.2L4.8 16a1 1 0 0 0 .8 1.6h12.8a1 1 0 0 0 .8-1.6l-1.7-2.8v-3.2c0-3.6-1.9-6.5-5.5-6.5Z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>
+          <span>Alerts</span>
+          <span class="nav-badge" id="nav-alert-badge"></span>
+        </a>
+
         <span class="nav-section-label">Reports</span>
         <a href="#overview" class="nav-link active" data-nav="overview">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
@@ -78,6 +85,23 @@
           </div>
         </div>
       </header>
+
+      <section id="alerts" class="panel alerts-panel">
+        <div class="panel-header">
+          <div class="panel-heading">
+            <h2>Action Center</h2>
+            <p class="panel-subtitle">Business conditions detected automatically, recalculated live from current data</p>
+          </div>
+          <div class="alert-filter-row" role="group" aria-label="Filter alerts by severity" id="alert-filter-row">
+            <button data-severity="all" class="active">All</button>
+            <button data-severity="critical">Critical</button>
+            <button data-severity="warning">Warning</button>
+            <button data-severity="info">Info</button>
+          </div>
+        </div>
+        <div class="stat-chip-row" id="alert-summary"></div>
+        <ul class="action-list" id="alert-list"></ul>
+      </section>
 
       <section id="overview" class="kpi-grid">
         <article class="kpi-card" id="kpi-revenue">

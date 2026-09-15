@@ -6,7 +6,8 @@ API contract can evolve independently of the internal representation.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -110,3 +111,25 @@ class KPISummaryResponse(BaseModel):
     estimated_profit: float
     website_visitors: int
     conversion_rate: float
+
+
+class AlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: str
+    type: str
+    severity: str
+    title: str
+    description: str
+    recommended_action: str
+    supporting_data: dict[str, Any]
+    detected_at: datetime
+    status: str
+
+
+class AlertSummaryResponse(BaseModel):
+    total: int
+    critical: int
+    warning: int
+    info: int
+    by_type: dict[str, int]
