@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from omni_retail.actions.executors import EXECUTORS, ExecutionOutcome
-from omni_retail.actions.models import ActionNotApprovedError, ActionNotProposedError
+from omni_retail.actions.models import ActionNotApprovedError, ActionNotProposedError, ProposalDraft
 from omni_retail.actions.proposals import build_proposal
 from omni_retail.automation import run_all_rules
 from omni_retail.models import ActionStatus
@@ -76,6 +76,37 @@ def create_proposals(session: Session, today: Optional[date] = None) -> list[Age
         for action in created:
             session.refresh(action)
     return created
+
+
+def create_manual_proposal(
+    session: Session,
+    draft: ProposalDraft,
+    source_alert_id: Optional[str] = None,
+) -> AgentAction:
+    """Persists a single PROPOSED action from a hand-built ProposalDraft,
+    rather than one derived from run_all_rules(). This is the only
+    entry point ai/llm/tools.py's `propose_action` tool is wired to --
+    `status=PROPOSED` is hardcoded here, not a parameter, so an
+    LLM-originated proposal is subject to exactly the same
+    approve_action()/execute_action() gate as a rule-engine-originated
+    one, enforced regardless of which path created the row."""
+    action = AgentAction(
+        action_type=draft.action_type,
+        source_alert_id=source_alert_id,
+        customer_id=draft.customer_id,
+        product_id=draft.product_id,
+        business_reason=draft.business_reason,
+        supporting_evidence={},
+        proposed_parameters=draft.proposed_parameters,
+        expected_outcome=draft.expected_outcome,
+        risk_level=draft.risk_level,
+        status=ActionStatus.PROPOSED,
+        created_at=datetime.now(),
+    )
+    session.add(action)
+    session.commit()
+    session.refresh(action)
+    return action
 
 
 def _get_action_or_raise(session: Session, action_id: int) -> AgentAction:

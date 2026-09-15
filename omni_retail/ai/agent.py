@@ -1,14 +1,25 @@
 """Entry point for the AI Business Analyst Agent.
 
-Pipeline: classify -> retrieve -> synthesize. Each stage is a plain
-function/class from this package, so any of the three can be swapped
-independently (e.g. an LLM-driven intent classifier, or a real LLM
-synthesizer) without touching this orchestration.
+Deterministic pipeline: classify -> retrieve -> synthesize. Each stage
+is a plain function/class from this package, so any of the three can
+be swapped independently.
 
-This phase is read-only end to end: retrieval.py only calls read
-functions, and nothing here writes to the database or calls an
-external service. Answering a question can never change business
-data.
+An optional LLM-driven agent mode (`ai/llm/`) can additionally reason
+over the same read-only tools and choose its own investigation path
+instead of the fixed keyword classifier. It is strictly opt-in
+(`OMNI_LLM_ENABLED`) and this module is the fallback boundary: if the
+LLM path is disabled, unconfigured, or fails in an expected way
+(provider unavailable, a call to it failing, or the bounded tool-call
+loop running out its budget), `answer_question()` falls straight back
+to the deterministic pipeline below -- the same pipeline this module
+has always run, unchanged. A genuine programming bug (anywhere in the
+LLM path or the deterministic one) is deliberately NOT caught here and
+propagates, rather than silently presenting as a normal fallback.
+
+This module never writes to the database or calls an external service
+on its own -- the LLM path's only write-shaped capability
+(`propose_action`) only ever creates a PROPOSED AgentAction row for
+human review (see `actions/service.py::create_manual_proposal`).
 """
 
 from __future__ import annotations
@@ -19,23 +30,16 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from omni_retail.ai import retrieval
 from omni_retail.ai.intents import Intent, classify_intent
+from omni_retail.ai.llm import config as llm_config
+from omni_retail.ai.llm import get_provider
+from omni_retail.ai.llm.orchestrator import OrchestrationLimitExceeded, answer_with_llm
+from omni_retail.ai.llm.provider import LLMProviderError
 from omni_retail.ai.models import AgentResponse
+from omni_retail.ai.retrieval import RETRIEVERS
 from omni_retail.ai.synthesis import get_synthesizer
 
 logger = logging.getLogger(__name__)
-
-_RETRIEVERS = {
-    Intent.REVENUE_EXPLANATION: retrieval.gather_revenue_explanation,
-    Intent.PRODUCT_PERFORMANCE: retrieval.gather_product_performance,
-    Intent.RESTOCK_PRIORITY: retrieval.gather_restock_priority,
-    Intent.TOP_CUSTOMERS: retrieval.gather_top_customers,
-    Intent.CHURN_RISK: retrieval.gather_churn_risk,
-    Intent.EXPENSE_ANOMALIES: retrieval.gather_expense_anomalies,
-    Intent.TRAFFIC_CONVERSION: retrieval.gather_traffic_conversion,
-    Intent.BUSINESS_ISSUES_SUMMARY: retrieval.gather_business_issues_summary,
-}
 
 EXAMPLE_QUESTIONS = [
     "Why did revenue change this month?",
@@ -59,6 +63,23 @@ def answer_question(session: Session, question: str, today: Optional[date] = Non
             confidence="low",
         )
 
+    if llm_config.is_llm_enabled():
+        provider = get_provider()
+        if provider is not None:
+            try:
+                return answer_with_llm(provider, session, question, today)
+            except (LLMProviderError, OrchestrationLimitExceeded) as exc:
+                logger.warning(
+                    "LLM agent path unavailable for question %r (%s: %s); falling back to the deterministic pipeline.",
+                    question,
+                    type(exc).__name__,
+                    exc,
+                )
+
+    return _answer_deterministic(session, question, today)
+
+
+def _answer_deterministic(session: Session, question: str, today: Optional[date] = None) -> AgentResponse:
     intent = classify_intent(question)
 
     if intent == Intent.UNKNOWN:
@@ -71,7 +92,7 @@ def answer_question(session: Session, question: str, today: Optional[date] = Non
         )
 
     try:
-        evidence = _RETRIEVERS[intent](session, today)
+        evidence = RETRIEVERS[intent](session, today)
         result = get_synthesizer().synthesize(question, intent, evidence)
     except Exception:
         logger.exception("Agent failed to answer question: %r (intent=%s)", question, intent.value)
