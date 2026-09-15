@@ -73,6 +73,26 @@ class TrafficSummary:
     conversion_rate: float
 
 
+@dataclass
+class DailyRevenuePoint:
+    day: date
+    revenue: float
+    orders: int
+
+
+@dataclass
+class DailyTrafficPoint:
+    day: date
+    visitors: int
+    sessions: int
+    conversions: int
+    conversion_rate: float
+
+
+def _as_date(value) -> date:
+    return datetime.strptime(value, "%Y-%m-%d").date() if isinstance(value, str) else value
+
+
 def revenue(session: Session, start: Optional[date] = None, end: Optional[date] = None) -> float:
     """Total realized revenue: sum of line totals on completed orders."""
     stmt = (
@@ -82,6 +102,30 @@ def revenue(session: Session, start: Optional[date] = None, end: Optional[date] 
     )
     stmt = _apply_date_filter(stmt, Order.order_datetime, start, end)
     return round(float(session.execute(stmt).scalar_one()), 2)
+
+
+def revenue_trend(
+    session: Session, start: Optional[date] = None, end: Optional[date] = None
+) -> list[DailyRevenuePoint]:
+    """Daily revenue and order count, for trend charts."""
+    day_col = func.date(Order.order_datetime)
+    stmt = (
+        select(
+            day_col.label("day"),
+            func.sum(OrderItem.quantity * OrderItem.unit_price).label("revenue"),
+            func.count(func.distinct(Order.id)).label("orders"),
+        )
+        .join(OrderItem, OrderItem.order_id == Order.id)
+        .where(Order.status.in_(REVENUE_STATUSES))
+        .group_by(day_col)
+        .order_by(day_col)
+    )
+    stmt = _apply_date_filter(stmt, Order.order_datetime, start, end)
+    rows = session.execute(stmt).all()
+    return [
+        DailyRevenuePoint(day=_as_date(row.day), revenue=round(float(row.revenue), 2), orders=int(row.orders))
+        for row in rows
+    ]
 
 
 def order_count(session: Session, start: Optional[date] = None, end: Optional[date] = None) -> int:
@@ -253,3 +297,36 @@ def website_traffic_summary(
     return TrafficSummary(
         visitors=visitors, sessions=sessions, conversions=conversions, conversion_rate=conversion_rate
     )
+
+
+def website_traffic_trend(
+    session: Session, start: Optional[date] = None, end: Optional[date] = None
+) -> list[DailyTrafficPoint]:
+    """Daily visitors/sessions/conversions, for trend charts."""
+    stmt = (
+        select(
+            WebsiteVisit.visit_date.label("day"),
+            func.sum(WebsiteVisit.visitors).label("visitors"),
+            func.sum(WebsiteVisit.sessions).label("sessions"),
+            func.sum(WebsiteVisit.conversions).label("conversions"),
+        )
+        .group_by(WebsiteVisit.visit_date)
+        .order_by(WebsiteVisit.visit_date)
+    )
+    stmt = _apply_date_filter(stmt, WebsiteVisit.visit_date, start, end)
+    rows = session.execute(stmt).all()
+
+    points = []
+    for row in rows:
+        visitors, sessions, conversions = int(row.visitors), int(row.sessions), int(row.conversions)
+        rate = round(conversions / visitors * 100, 2) if visitors else 0.0
+        points.append(
+            DailyTrafficPoint(
+                day=_as_date(row.day),
+                visitors=visitors,
+                sessions=sessions,
+                conversions=conversions,
+                conversion_rate=rate,
+            )
+        )
+    return points
