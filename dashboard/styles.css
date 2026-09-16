@@ -1137,12 +1137,16 @@ svg {
 
 .qa-question {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-weight: 700;
   font-size: 13.5px;
   color: var(--text);
   margin-bottom: 8px;
+}
+
+.qa-question .intent-pill {
+  margin-top: 1px;
 }
 
 .qa-question .intent-pill {
@@ -1208,9 +1212,10 @@ svg {
 
 .qa-question-row {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px 8px;
 }
 
 .qa-mode-badge {
