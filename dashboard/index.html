@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body>
   <div class="app-shell">
@@ -29,7 +29,7 @@
         <span class="nav-section-label">Action Center</span>
         <a href="#alerts" class="nav-link" data-nav="alerts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c-3.6 0-5.5 2.9-5.5 6.5v3.2L4.8 16a1 1 0 0 0 .8 1.6h12.8a1 1 0 0 0 .8-1.6l-1.7-2.8v-3.2c0-3.6-1.9-6.5-5.5-6.5Z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>
-          <span>Alerts</span>
+          <span>Action Center</span>
           <span class="nav-badge" id="nav-alert-badge"></span>
         </a>
         <a href="#assistant" class="nav-link" data-nav="assistant">
@@ -59,11 +59,11 @@
         </a>
         <a href="#products" class="nav-link" data-nav="products">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8"/></svg>
-          <span>Products</span>
+          <span>Top Products</span>
         </a>
         <a href="#customers" class="nav-link" data-nav="customers">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/><circle cx="17.5" cy="8.5" r="2.7"/><path d="M16 13.6c2.9.4 5 2.9 5 6.4"/></svg>
-          <span>Customers</span>
+          <span>Top Customers</span>
         </a>
         <a href="#inventory" class="nav-link" data-nav="inventory">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4.5" rx="1.2"/><path d="M4.5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5V8.5"/><path d="M10 13h4"/></svg>
@@ -111,6 +111,11 @@
         </div>
       </header>
 
+      <div class="load-error-banner" id="load-error-banner" hidden>
+        <span>Some dashboard data couldn't be loaded &mdash; figures below may be incomplete.</span>
+        <button type="button" class="btn-outline" id="load-error-retry">Retry</button>
+      </div>
+
       <section id="alerts" class="panel alerts-panel">
         <div class="panel-header">
           <div class="panel-heading">
@@ -136,6 +141,7 @@
           </div>
         </div>
 
+        <p class="assistant-chip-label">Try asking:</p>
         <div class="assistant-chip-row" id="assistant-examples"></div>
 
         <form class="assistant-form" id="assistant-form">
@@ -168,7 +174,7 @@
         </div>
         <div class="panel-header agent-actions-toolbar">
           <div class="stat-chip-row" id="agent-actions-summary"></div>
-          <button type="button" class="pos-select" id="agent-actions-refresh-btn">Check for new proposals</button>
+          <button type="button" class="btn-outline" id="agent-actions-refresh-btn">Check for new proposals</button>
         </div>
         <ul class="action-list agent-actions-list" id="agent-actions-list"></ul>
       </section>
@@ -428,6 +434,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

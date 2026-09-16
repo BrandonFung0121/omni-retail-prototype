@@ -408,9 +408,15 @@ function renderAlertList() {
   }
 
   list.innerHTML = filtered
-    .map(
-      (a) => `
-      <li class="action-item ${a.severity}">
+    .map((a) => {
+      const linkedAction = state.agentActions.find((action) => action.source_alert_id === a.id);
+      const actionLinkHtml = linkedAction
+        ? `<button type="button" class="qa-link-btn" data-jump-action="${linkedAction.id}">View proposed action: ${escapeHTML(
+            AGENT_ACTION_TYPE_LABELS[linkedAction.action_type] || linkedAction.action_type
+          )} &rarr;</button>`
+        : "";
+      return `
+      <li class="action-item ${a.severity}" data-alert-id="${escapeHTML(a.id)}">
         <div class="action-icon">${SEVERITY_ICON[a.severity] || ICONS.info}</div>
         <div class="action-main">
           <div class="action-top">
@@ -419,10 +425,15 @@ function renderAlertList() {
           </div>
           <p class="action-desc">${escapeHTML(a.description)}</p>
           <div class="action-recommend">${ICONS.lightbulb}<span>${escapeHTML(a.recommended_action)}</span></div>
+          ${actionLinkHtml}
         </div>
-      </li>`
-    )
+      </li>`;
+    })
     .join("");
+
+  list.querySelectorAll("[data-jump-action]").forEach((btn) => {
+    btn.addEventListener("click", () => jumpToAgentAction(Number(btn.dataset.jumpAction)));
+  });
 }
 
 async function loadAlerts() {
@@ -452,15 +463,155 @@ const INTENT_LABELS = {
   unknown: "Unclear",
 };
 
-async function loadAssistantExamples() {
-  const data = await fetchJSON("/api/assistant/examples");
+// A small, curated subset of the assistant's supported questions --
+// picked to (a) read naturally to a first-time viewer and (b) reliably
+// classify under the deterministic keyword pipeline (ai/intents.py),
+// so the demo works the same whether Phase 8 LLM mode is on or off.
+// Clicking one always goes through the real submitQuestion() ->
+// /api/assistant/ask flow below, never a canned/local answer.
+const ASSISTANT_STARTER_QUESTIONS = [
+  "What should I focus on right now?",
+  "Which products are performing best?",
+  "Are there any inventory risks?",
+  "Which customers are at risk of churning?",
+];
+
+function renderAssistantStarters() {
   const container = document.getElementById("assistant-examples");
-  container.innerHTML = data.questions
-    .map((q) => `<button type="button" class="assistant-chip">${escapeHTML(q)}</button>`)
-    .join("");
+  container.innerHTML = ASSISTANT_STARTER_QUESTIONS.map(
+    (q) => `<button type="button" class="assistant-chip">${escapeHTML(q)}</button>`
+  ).join("");
   container.querySelectorAll(".assistant-chip").forEach((chip) => {
     chip.addEventListener("click", () => submitQuestion(chip.textContent));
   });
+}
+
+// Business-friendly labels for AgentResponse.generated_by ("template" |
+// "llm" -- see ai/models.py). Never surface the raw internal values.
+const GENERATED_BY_LABELS = {
+  llm: { label: "AI reasoning", cls: "llm" },
+  template: { label: "Quick answer", cls: "template" },
+};
+
+// Humanized labels for AgentResponse.tool_trace[].tool (see
+// ai/llm/tools.py's TOOL_REGISTRY) -- shown instead of raw tool/function
+// names so the "What I checked" disclosure reads as business capability,
+// not implementation detail.
+const TOOL_LABELS = {
+  get_revenue_explanation: "Revenue trend",
+  get_product_performance: "Product performance",
+  get_restock_priority: "Restock priorities",
+  get_top_customers: "Top customers",
+  get_churn_risk: "Customer churn risk",
+  get_expense_anomalies: "Expense patterns",
+  get_traffic_conversion: "Website traffic & conversion",
+  get_business_issues_summary: "Open business issues",
+  search_customers: "Customer search",
+  get_order: "Order lookup",
+  get_product: "Product lookup",
+  propose_action: "Proposed a follow-up action",
+};
+
+// Display metadata for known AgentResponse.supporting_metrics keys (see
+// omni_retail/ai/synthesis.py). Unrecognized scalar keys still render,
+// generically labeled/formatted, so a future metric doesn't just vanish.
+const METRIC_LABELS = {
+  current_revenue: { label: "Current Revenue", format: "currency" },
+  previous_revenue: { label: "Previous Revenue", format: "currency" },
+  pct_change: { label: "Change", format: "change" },
+  out_of_stock_count: { label: "Out of Stock", format: "number" },
+  low_stock_count: { label: "Low Stock", format: "number" },
+  total_this_month: { label: "Total This Month", format: "currency" },
+  current_visitors: { label: "Visitors", format: "number" },
+  previous_visitors: { label: "Previous Visitors", format: "number" },
+  current_conversion_rate: { label: "Conversion Rate", format: "rate" },
+  previous_conversion_rate: { label: "Previous Conversion Rate", format: "rate" },
+  total_alerts: { label: "Open Issues", format: "number" },
+  critical: { label: "Critical", format: "number" },
+  warning: { label: "Warning", format: "number" },
+};
+
+function humanizeKey(key) {
+  return key
+    .replace(/^get_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatMetricValue(value, format) {
+  if (format === "currency") return formatCurrency(value);
+  if (format === "change") return `${value > 0 ? "+" : ""}${Number(value).toFixed(1)}%`;
+  if (format === "rate") return `${Number(value).toFixed(1)}%`;
+  return formatNumber(value);
+}
+
+function renderQaModeBadge(generatedBy) {
+  const meta = GENERATED_BY_LABELS[generatedBy] || GENERATED_BY_LABELS.template;
+  return `<span class="qa-mode-badge ${meta.cls}">${escapeHTML(meta.label)}</span>`;
+}
+
+// Only top-level scalar metrics are shown as chips -- nested lists/dicts
+// (e.g. biggest_decliners, top_customers) are already reflected in the
+// prose answer and aren't safe to summarize generically without risking
+// a misleading chip, so they're left out rather than guessed at.
+function renderQaMetrics(metrics) {
+  const entries = Object.entries(metrics || {}).filter(([, v]) => typeof v === "number" || typeof v === "string");
+  if (!entries.length) return "";
+  const chips = entries
+    .map(([key, value]) => {
+      const meta = METRIC_LABELS[key];
+      const label = meta ? meta.label : humanizeKey(key);
+      const display = typeof value === "number" ? formatMetricValue(value, meta ? meta.format : "number") : escapeHTML(String(value));
+      return `<span class="qa-metric-chip"><span class="qa-metric-label">${escapeHTML(label)}</span><span class="qa-metric-value">${display}</span></span>`;
+    })
+    .join("");
+  return `<div class="qa-metrics">${chips}</div>`;
+}
+
+// Collapsed by default -- shows which business capabilities were used to
+// ground this answer, without exposing raw tool names/arguments/JSON.
+function renderQaToolTrace(trace) {
+  if (!trace || !trace.length) return "";
+  const items = trace
+    .map((t) => {
+      const label = TOOL_LABELS[t.tool] || humanizeKey(t.tool);
+      return `<li class="qa-trace-item ${t.ok ? "ok" : "error"}"><span class="qa-trace-dot"></span>${escapeHTML(label)}</li>`;
+    })
+    .join("");
+  return `<details class="qa-tool-trace agent-action-evidence"><summary>What I checked</summary><ul class="qa-trace-list">${items}</ul></details>`;
+}
+
+// ---------- cross-navigation between Assistant / Alerts / Agent Actions ----------
+// Only ever wired up when the target is currently resolvable in already-
+// loaded live data -- never fabricates a link for an id that doesn't
+// (or no longer) resolves to a real row.
+function jumpToListItem(containerId, matchFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return false;
+  const item = Array.from(container.children).find(matchFn);
+  if (!item) return false;
+  item.scrollIntoView({ behavior: "smooth", block: "center" });
+  item.classList.add("jump-highlight");
+  setTimeout(() => item.classList.remove("jump-highlight"), 1600);
+  return true;
+}
+
+function jumpToAlert(alertId) {
+  if (state.alertFilter !== "all") {
+    state.alertFilter = "all";
+    document.querySelectorAll("#alert-filter-row button").forEach((b) => b.classList.toggle("active", b.dataset.severity === "all"));
+    renderAlertList();
+  }
+  jumpToListItem("alert-list", (el) => el.dataset.alertId === String(alertId));
+}
+
+function jumpToAgentAction(actionId) {
+  if (state.agentActionsFilter !== "all") {
+    state.agentActionsFilter = "all";
+    document.querySelectorAll("#agent-actions-filter-row button").forEach((b) => b.classList.toggle("active", b.dataset.status === "all"));
+    renderAgentActionsList();
+  }
+  jumpToListItem("agent-actions-list", (el) => el.dataset.actionId === String(actionId));
 }
 
 function renderQaLoadingCard(question) {
@@ -487,16 +638,31 @@ function renderQaResult(card, data) {
         .map((a) => `<li>${ICONS.lightbulb}<span>${escapeHTML(a)}</span></li>`)
         .join("")}</ul>`
     : "";
-  const alertRefHtml = data.related_alert_ids.length
-    ? `<div class="qa-alert-ref">Related to ${data.related_alert_ids.length} item(s) in the Action Center.</div>`
+
+  const relatedAlerts = (data.related_alert_ids || [])
+    .map((id) => state.alerts.find((a) => a.id === id))
+    .filter(Boolean);
+  const alertRefHtml = relatedAlerts.length
+    ? `<div class="qa-alert-ref">Related in the Action Center: ${relatedAlerts
+        .map((a) => `<button type="button" class="qa-link-btn" data-jump-alert="${escapeHTML(a.id)}">${escapeHTML(a.title)}</button>`)
+        .join(" ")}</div>`
     : "";
 
   card.innerHTML = `
-    <div class="qa-question"><span class="${pillClass}">${escapeHTML(intentLabel)}</span>${escapeHTML(data.question)}</div>
+    <div class="qa-question-row">
+      <div class="qa-question"><span class="${pillClass}">${escapeHTML(intentLabel)}</span>${escapeHTML(data.question)}</div>
+      ${renderQaModeBadge(data.generated_by)}
+    </div>
     <p class="qa-answer">${escapeHTML(data.answer)}</p>
+    ${renderQaMetrics(data.supporting_metrics)}
     ${actionsHtml}
+    ${renderQaToolTrace(data.tool_trace)}
     ${alertRefHtml}
   `;
+
+  card.querySelectorAll("[data-jump-alert]").forEach((btn) => {
+    btn.addEventListener("click", () => jumpToAlert(btn.dataset.jumpAlert));
+  });
 }
 
 function renderQaError(card, question) {
@@ -618,6 +784,41 @@ function renderAgentActionEvidence(evidence) {
   return `<details class="agent-action-evidence"><summary>Supporting evidence</summary><div class="agent-evidence-grid">${rows}</div></details>`;
 }
 
+function sourceAlertLinkHtml(action) {
+  if (!action.source_alert_id) return "";
+  const alert = state.alerts.find((a) => a.id === action.source_alert_id);
+  if (!alert) return "";
+  return `<button type="button" class="qa-link-btn" data-jump-alert="${escapeHTML(action.source_alert_id)}">Source alert: ${escapeHTML(
+    alert.title
+  )} &rarr;</button>`;
+}
+
+function renderAgentActionAuditTrail(action) {
+  const steps = [{ label: "Proposed", at: action.created_at, detail: "" }];
+  if (action.decided_at) {
+    const verb = action.status === "rejected" ? "Rejected" : "Approved";
+    const who = action.decided_by ? `By ${action.decided_by}.` : "";
+    const reason = action.status === "rejected" && action.rejection_reason ? ` ${action.rejection_reason}` : "";
+    steps.push({ label: verb, at: action.decided_at, detail: `${who}${reason}`.trim() });
+  }
+  if (action.executed_at) {
+    const ok = action.status === "executed";
+    const detail = action.execution_result ? (ok ? action.execution_result.detail : action.execution_result.failure_reason) : "";
+    steps.push({ label: ok ? "Executed" : "Execution failed", at: action.executed_at, detail: detail || "" });
+  }
+  const rows = steps
+    .map(
+      (s) => `
+      <li>
+        <span class="audit-step-label">${escapeHTML(s.label)}</span>
+        <span class="audit-step-time">${new Date(s.at).toLocaleString()}</span>
+        ${s.detail ? `<span class="audit-step-detail">${escapeHTML(s.detail)}</span>` : ""}
+      </li>`
+    )
+    .join("");
+  return `<details class="agent-action-evidence"><summary>Audit trail</summary><ul class="audit-trail-list">${rows}</ul></details>`;
+}
+
 function renderAgentActionDecisionInfo(action) {
   const parts = [];
   if (action.decided_by) {
@@ -677,7 +878,9 @@ function renderAgentActionItem(action) {
         </div>
         <p class="action-desc">${escapeHTML(action.business_reason)}</p>
         <div class="action-recommend">${ICONS.lightbulb}<span>${escapeHTML(action.expected_outcome)}</span></div>
+        ${sourceAlertLinkHtml(action)}
         ${renderAgentActionEvidence(action.supporting_evidence)}
+        ${renderAgentActionAuditTrail(action)}
         ${bodyHtml}
       </div>
     </li>`;
@@ -691,9 +894,10 @@ function renderAgentActionsList() {
       : state.agentActions.filter((a) => a.status === state.agentActionsFilter);
 
   if (filtered.length === 0) {
-    list.innerHTML = `<li class="empty-state">No ${
-      state.agentActionsFilter === "all" ? "" : state.agentActionsFilter + " "
-    }actions right now.</li>`;
+    list.innerHTML =
+      state.agentActionsFilter === "all"
+        ? `<li class="empty-state">No proposed actions right now. The AI proposes actions here when it finds something in the Action Center worth acting on.</li>`
+        : `<li class="empty-state">No ${state.agentActionsFilter} actions right now.</li>`;
     return;
   }
 
@@ -704,6 +908,9 @@ function renderAgentActionsList() {
   });
   list.querySelectorAll(".agent-action-reject-btn").forEach((button) => {
     button.addEventListener("click", () => rejectAgentAction(Number(button.dataset.actionId)));
+  });
+  list.querySelectorAll("[data-jump-alert]").forEach((btn) => {
+    btn.addEventListener("click", () => jumpToAlert(btn.dataset.jumpAlert));
   });
 }
 
@@ -759,6 +966,7 @@ async function loadAgentActions() {
   state.agentActions = await fetchJSON("/api/actions");
   renderAgentActionsSummary(state.agentActions);
   renderAgentActionsList();
+  renderAlertList(); // refresh alert -> action cross-links now that actions are current
 }
 
 async function generateAgentActions() {
@@ -1247,9 +1455,22 @@ const spyObserver = new IntersectionObserver(
 );
 sections.forEach((section) => spyObserver.observe(section));
 
-loadDashboard().catch((err) => console.error(err));
-loadAlerts().catch((err) => console.error(err));
-loadAssistantExamples().catch((err) => console.error(err));
-generateAgentActions().catch((err) => console.error(err));
-loadPosProducts().catch((err) => console.error(err));
-loadTransactions().catch((err) => console.error(err));
+// Initial data load, coordinated so a failure anywhere surfaces a visible,
+// dismissable-by-retry banner instead of leaving sections silently blank
+// (previously each load only logged to the console on failure).
+async function loadAll() {
+  document.getElementById("load-error-banner").hidden = true;
+  try {
+    await Promise.all([loadDashboard(), loadAlerts(), generateAgentActions(), loadPosProducts(), loadTransactions()]);
+  } catch (err) {
+    console.error(err);
+    document.getElementById("load-error-banner").hidden = false;
+  }
+}
+
+document.getElementById("load-error-retry").addEventListener("click", () => {
+  loadAll();
+});
+
+renderAssistantStarters();
+loadAll();
