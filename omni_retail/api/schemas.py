@@ -314,3 +314,24 @@ class ApproveActionRequest(BaseModel):
 class RejectActionRequest(BaseModel):
     decided_by: str = "Admin"
     reason: str | None = None
+
+
+class StorefrontAskRequest(BaseModel):
+    question: str
+    cart: list[CartItemIn] = []
+
+
+class CartActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: int
+    product_name: str
+    quantity: int
+    unit_price: float
+
+
+class StorefrontAskResponse(BaseModel):
+    answer: str
+    generated_by: str
+    cart_action: CartActionOut | None = None
+    suggested_product_ids: list[int] = []

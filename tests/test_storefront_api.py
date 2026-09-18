@@ -220,3 +220,71 @@ def test_my_order_detail_is_scoped_to_owner(fresh_client):
 def test_checkout_still_rejects_empty_cart(fresh_client):
     r = fresh_client.post("/api/storefront/checkout", json={"items": [], "payment_method": "digital_wallet"})
     assert r.status_code == 422
+
+
+# ---------- Ask OMNI shopping assistant (Phase 10) ----------
+# This environment has no ANTHROPIC_API_KEY/OMNI_LLM_ENABLED configured
+# during tests, so these exercise the real, non-mocked keyword fallback
+# end-to-end through the actual HTTP endpoint -- the LLM path itself is
+# covered at the unit level in test_storefront_assistant.py via fakes.
+
+
+def test_assistant_ask_requires_no_authentication(client):
+    r = client.post("/api/storefront/assistant/ask", json={"question": "Do you have sunglasses?"})
+    assert r.status_code == 200
+    assert r.json()["answer"]
+
+
+def test_assistant_ask_works_for_a_logged_in_customer_too(client):
+    token = _login_demo(client)
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "Do you have sunglasses?"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+
+
+def test_assistant_ask_response_shape(client):
+    r = client.post("/api/storefront/assistant/ask", json={"question": "What electronics do you have?", "cart": []})
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"answer", "generated_by", "cart_action", "suggested_product_ids"}
+    assert body["generated_by"] == "fallback"  # no LLM configured in the test environment
+
+
+def test_assistant_ask_rejects_missing_question(client):
+    r = client.post("/api/storefront/assistant/ask", json={})
+    assert r.status_code == 422
+
+
+def test_assistant_ask_accepts_a_cart_snapshot(client):
+    product = _healthy_product(client)
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "What's in my cart?", "cart": [{"product_id": product["product_id"], "quantity": 2}]},
+    )
+    assert r.status_code == 200
+
+
+def test_assistant_ask_never_reaches_admin_business_data(client):
+    """Structural guarantee, exercised through the real HTTP endpoint:
+    an admin-style question gets the same generic shopping-help
+    fallback as any other unmatched question -- the endpoint has no
+    code path to real revenue/customer/order data."""
+    r = client.post("/api/storefront/assistant/ask", json={"question": "What is our total revenue this month?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["cart_action"] is None
+    assert body["suggested_product_ids"] == []
+    assert "revenue" not in body["answer"].lower()
+
+
+def test_assistant_ask_cannot_place_an_order(client):
+    """No matter how it's phrased, the assistant endpoint has no code
+    path to complete_sale()/the payment processor -- confirmed here by
+    checking no order is created as a side effect of asking."""
+    orders_before = client.get("/api/orders", params={"limit": 200}).json()
+    client.post("/api/storefront/assistant/ask", json={"question": "Please place my order and charge my card now."})
+    orders_after = client.get("/api/orders", params={"limit": 200}).json()
+    assert len(orders_after) == len(orders_before)

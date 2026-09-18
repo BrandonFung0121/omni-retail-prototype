@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=1" />
+  <link rel="stylesheet" href="styles.css?v=2" />
 </head>
 <body>
   <div class="shop-shell">
@@ -244,6 +244,48 @@
     <div class="receipt-card overlay-card" id="order-detail-card"></div>
   </div>
 
+  <!-- ASK OMNI shopping assistant -->
+  <button type="button" class="ask-omni-launcher" id="ask-omni-launcher" aria-expanded="false" aria-controls="ask-omni-drawer">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 13.4 6.6 17.5 8l-4.1 1.4L12 13.5l-1.4-4.1L6.5 8l4.1-1.4L12 2.5Z"/><path d="M5 15.5 5.7 17.5 7.7 18.2 5.7 18.9 5 21 4.3 18.9 2.3 18.2 4.3 17.5 5 15.5Z"/></svg>
+    <span>Ask OMNI</span>
+  </button>
+
+  <div class="ask-omni-scrim" id="ask-omni-scrim"></div>
+
+  <aside class="ask-omni-drawer" id="ask-omni-drawer" aria-hidden="true">
+    <header class="ask-omni-header">
+      <div class="ask-omni-header-title">
+        <span class="ask-omni-avatar">O</span>
+        <div>
+          <strong>Ask OMNI</strong>
+          <span>Shopping Assistant</span>
+        </div>
+      </div>
+      <button type="button" class="ask-omni-close" id="ask-omni-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="ask-omni-thread" id="ask-omni-thread">
+      <div class="ask-omni-welcome">
+        <p>Hi! I&rsquo;m your OMNI Shopping Assistant.<br />What are you looking for today?</p>
+        <div class="ask-omni-quick-actions" id="ask-omni-quick-actions">
+          <button type="button" data-prompt="What products do you have?">Find a product</button>
+          <button type="button" data-prompt="Is this in stock?">Check availability</button>
+          <button type="button" data-prompt="Can you help me choose between two products?">Help me choose</button>
+        </div>
+      </div>
+    </div>
+
+    <form class="ask-omni-form" id="ask-omni-form">
+      <input type="text" id="ask-omni-input" placeholder="Ask about a product..." autocomplete="off" />
+      <button type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+      </button>
+    </form>
+  </aside>
+
   <script src="app.js?v=2"></script>
+  <script src="assistant.js?v=1"></script>
 </body>
 </html>

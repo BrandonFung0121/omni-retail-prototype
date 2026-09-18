@@ -23,8 +23,6 @@ independent layer of enforcement (the APPROVED-only guard on
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass, is_dataclass
 from datetime import date
 from typing import Any, Callable, Optional
 
@@ -34,42 +32,18 @@ from omni_retail import services
 from omni_retail.actions.models import ProposalDraft
 from omni_retail.actions.service import create_manual_proposal
 from omni_retail.ai.intents import Intent
+from omni_retail.ai.llm.tool_kit import (
+    _EMPTY_SCHEMA,
+    ToolArgumentError,
+    ToolSpec,
+    UnknownToolError,
+    build_schemas,
+    to_jsonable,
+)
+from omni_retail.ai.llm.tool_kit import dispatch as _dispatch
 from omni_retail.ai.retrieval import RETRIEVERS
 from omni_retail.ai.synthesis import TemplateAnswerSynthesizer
 from omni_retail.models import ActionType, Customer, RiskLevel
-
-
-class ToolError(Exception):
-    """Base class for a malformed/unknown tool call -- recoverable:
-    the orchestrator feeds the message back to the model as a tool
-    error result rather than aborting the run."""
-
-
-class UnknownToolError(ToolError):
-    pass
-
-
-class ToolArgumentError(ToolError):
-    pass
-
-
-@dataclass
-class ToolSpec:
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-    handler: Callable[..., Any]
-    read_only: bool = True
-
-
-def _to_jsonable(value: Any) -> Any:
-    if is_dataclass(value) and not isinstance(value, type):
-        return {k: _to_jsonable(v) for k, v in asdict(value).items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_jsonable(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _to_jsonable(v) for k, v in value.items()}
-    return value
 
 
 def _synthesis_payload(question: str, intent: Intent, evidence: dict[str, Any]) -> dict[str, Any]:
@@ -80,41 +54,6 @@ def _synthesis_payload(question: str, intent: Intent, evidence: dict[str, Any]) 
         "recommended_actions": result.recommended_actions,
         "related_alert_ids": result.related_alert_ids,
     }
-
-
-def _check_schema(schema: dict[str, Any], arguments: dict[str, Any], tool_name: str) -> None:
-    if not isinstance(arguments, dict):
-        raise ToolArgumentError(f"{tool_name}: arguments must be a JSON object, got {type(arguments).__name__}.")
-
-    for field_name in schema.get("required", []):
-        if field_name not in arguments:
-            raise ToolArgumentError(f"{tool_name}: missing required argument {field_name!r}.")
-
-    properties = schema.get("properties", {})
-    _type_map = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "object": dict, "array": list}
-    for field_name, value in arguments.items():
-        prop_schema = properties.get(field_name)
-        if prop_schema is None:
-            raise ToolArgumentError(f"{tool_name}: unexpected argument {field_name!r}.")
-        expected_type = _type_map.get(prop_schema.get("type"))
-        # bool is a subclass of int in Python -- exclude it from the "integer"/"number" check
-        # so a stray `true` isn't silently accepted as a quantity.
-        if expected_type is not None and (
-            not isinstance(value, expected_type) or (expected_type in (int, (int, float)) and isinstance(value, bool))
-        ):
-            raise ToolArgumentError(
-                f"{tool_name}: argument {field_name!r} must be of type {prop_schema.get('type')}, got {type(value).__name__}."
-            )
-        enum_values = prop_schema.get("enum")
-        if enum_values is not None and value not in enum_values:
-            raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be one of {enum_values}, got {value!r}.")
-
-        minimum = prop_schema.get("minimum")
-        if minimum is not None and isinstance(value, (int, float)) and not isinstance(value, bool) and value < minimum:
-            raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be >= {minimum}, got {value!r}.")
-        maximum = prop_schema.get("maximum")
-        if maximum is not None and isinstance(value, (int, float)) and not isinstance(value, bool) and value > maximum:
-            raise ToolArgumentError(f"{tool_name}: argument {field_name!r} must be <= {maximum}, got {value!r}.")
 
 
 def _make_evidence_handler(intent: Intent) -> Callable[..., Any]:
@@ -130,21 +69,21 @@ def _make_evidence_handler(intent: Intent) -> Callable[..., Any]:
 def _handle_search_customers(session: Session, arguments: dict[str, Any], *, question: str, today: Optional[date]) -> Any:
     query = arguments.get("query", "")
     limit = arguments.get("limit", 10)
-    return _to_jsonable(services.search_customers(session, query=query, limit=limit))
+    return to_jsonable(services.search_customers(session, query=query, limit=limit))
 
 
 def _handle_get_order(session: Session, arguments: dict[str, Any], *, question: str, today: Optional[date]) -> Any:
     order = services.get_order(session, order_id=arguments["order_id"])
     if order is None:
         return {"found": False, "order_id": arguments["order_id"]}
-    return {"found": True, **_to_jsonable(order)}
+    return {"found": True, **to_jsonable(order)}
 
 
 def _handle_get_product(session: Session, arguments: dict[str, Any], *, question: str, today: Optional[date]) -> Any:
     product = services.get_product(session, product_id=arguments["product_id"])
     if product is None:
         return {"found": False, "product_id": arguments["product_id"]}
-    return {"found": True, **_to_jsonable(product)}
+    return {"found": True, **to_jsonable(product)}
 
 
 def _handle_propose_action(session: Session, arguments: dict[str, Any], *, question: str, today: Optional[date]) -> Any:
@@ -190,8 +129,6 @@ def _handle_propose_action(session: Session, arguments: dict[str, Any], *, quest
         ),
     }
 
-
-_EMPTY_SCHEMA = {"type": "object", "properties": {}, "required": []}
 
 _EVIDENCE_TOOLS: dict[str, tuple[Intent, str]] = {
     "get_revenue_explanation": (Intent.REVENUE_EXPLANATION, "Explain how revenue changed over the current reporting period vs. the prior one, including the biggest gaining/declining products and any related alert."),
@@ -267,22 +204,13 @@ TOOL_REGISTRY["propose_action"] = ToolSpec(
 
 
 def get_tool_schemas() -> list[dict[str, Any]]:
-    return [{"name": spec.name, "description": spec.description, "input_schema": spec.input_schema} for spec in TOOL_REGISTRY.values()]
+    return build_schemas(TOOL_REGISTRY)
 
 
 def dispatch_tool(session: Session, name: str, arguments: dict[str, Any], *, question: str, today: Optional[date]) -> str:
-    """Runs one tool call and returns its JSON-serialized result.
-
-    Raises `UnknownToolError`/`ToolArgumentError` for a bad request from
-    the model -- the orchestrator catches exactly these two and feeds
-    them back as a tool error result. Any other exception (a genuine
-    bug in a handler or the underlying service) is left to propagate,
-    on purpose: it must not be mistaken for "the model asked for
-    something invalid.\""""
-    spec = TOOL_REGISTRY.get(name)
-    if spec is None:
-        raise UnknownToolError(f"No such tool {name!r}. Available tools: {', '.join(sorted(TOOL_REGISTRY))}.")
-
-    _check_schema(spec.input_schema, arguments, name)
-    result = spec.handler(session, arguments, question=question, today=today)
-    return json.dumps(result, default=str)
+    """Runs one tool call against the admin `TOOL_REGISTRY` and returns
+    its JSON-serialized result. See `tool_kit.dispatch` for the shared
+    mechanics -- this wrapper only fixes the admin-specific `question`/
+    `today` handler context so every existing caller/test keeps this
+    exact signature."""
+    return _dispatch(TOOL_REGISTRY, session, name, arguments, question=question, today=today)
