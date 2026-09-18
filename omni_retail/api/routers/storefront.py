@@ -16,15 +16,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from omni_retail import services
+from omni_retail.ai.storefront_agent import answer_shopping_question
 from omni_retail.api.dependencies import get_current_customer, get_current_customer_optional, get_session
 from omni_retail.api.schemas import (
     AuthResponse,
+    CartActionOut,
     CustomerMeOut,
     LoginRequest,
     OrderDetailOut,
     OrderSummaryOut,
     RegisterRequest,
     SaleReceiptOut,
+    StorefrontAskRequest,
+    StorefrontAskResponse,
     StorefrontCheckoutRequest,
 )
 from omni_retail.auth import create_session, hash_password, verify_password
@@ -149,3 +153,40 @@ def my_order_detail(
     if order is None or order.customer_id != customer.id:
         raise HTTPException(status_code=404, detail=f"No order with id {order_id}.")
     return order
+
+
+@router.post("/assistant/ask", response_model=StorefrontAskResponse)
+def assistant_ask(request: StorefrontAskRequest, session: Session = Depends(get_session)) -> StorefrontAskResponse:
+    """Ask the customer-facing 'Ask OMNI' shopping assistant a
+    question. No authentication required -- guest or logged-in, same
+    as checkout -- since it never touches any customer-specific data;
+    the storefront's own cart (client-side) is passed in on `request`.
+    Read-only for the catalogue; the only "write" it can ever produce
+    is a suggested cart_action for the storefront's own client-side
+    cart to apply -- this endpoint never calls complete_sale() or any
+    payment code, so it cannot place an order no matter what the
+    customer or the model asks for.
+
+    Deliberately does NOT use omni_retail.ai.agent (the admin AI) or
+    its tool registry -- see ai/storefront_agent.py and
+    ai/llm/storefront_tools.py for the separate, customer-scoped path.
+    """
+    cart_items = [item.model_dump() for item in request.cart]
+    result = answer_shopping_question(session, request.question, cart=cart_items)
+
+    cart_action = (
+        CartActionOut(
+            product_id=result.cart_action.product_id,
+            product_name=result.cart_action.product_name,
+            quantity=result.cart_action.quantity,
+            unit_price=result.cart_action.unit_price,
+        )
+        if result.cart_action
+        else None
+    )
+    return StorefrontAskResponse(
+        answer=result.answer,
+        generated_by=result.generated_by,
+        cart_action=cart_action,
+        suggested_product_ids=result.suggested_product_ids,
+    )
