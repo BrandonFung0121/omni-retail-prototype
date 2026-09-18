@@ -201,7 +201,18 @@ def _extract_suggested_product_ids(tool_calls) -> list[int]:
 
 _PRICE_CEILING_RE = re.compile(r"(?:under|below|less than|cheaper than|up to)\D{0,6}?(\d+(?:\.\d+)?)", re.IGNORECASE)
 _STOCK_KEYWORDS = ("in stock", "available", "how many", "left in stock", "out of stock")
-_BROWSE_KEYWORDS = ("what products", "what do you have", "what do you sell", "show me", "browse", "catalog", "catalogue")
+# Phrase-level browse signals, plus a word-boundary check for the sell/offer/
+# carry verbs so natural variations ("what lifestyle products do you guys
+# sell?", "what do you carry?") are caught without hardcoding every phrasing.
+# Deliberately excludes "stock" as a verb -- that word already has its own,
+# more specific handling via _STOCK_KEYWORDS below.
+_BROWSE_KEYWORDS = (
+    "what products", "what do you have", "what you have", "show me",
+    "browse", "catalog", "catalogue", "what kind of", "what kinds of",
+    "what type of", "what types of", "tell me about", "what categories",
+    "categories do you have", "about omni",
+)
+_SELL_VERB_RE = re.compile(r"\b(sell|sells|selling|offer|offers|carry|carries)\b", re.IGNORECASE)
 _CART_INTENT_KEYWORDS = ("add", "cart", "buy it", "purchase")
 
 
@@ -219,9 +230,6 @@ def _fallback_answer(session: Session, question: str) -> StorefrontAgentResponse
     if named_match is not None:
         return _fallback_product_detail(named_match, cart_intent=any(k in text for k in _CART_INTENT_KEYWORDS))
 
-    if any(k in text for k in _BROWSE_KEYWORDS):
-        return _fallback_search_results(catalog[:6])
-
     price_match = _PRICE_CEILING_RE.search(text)
     max_price = float(price_match.group(1)) if price_match else None
 
@@ -232,6 +240,10 @@ def _fallback_answer(session: Session, question: str) -> StorefrontAgentResponse
         p for p in catalog if any(w in p.name.lower() for w in query_words) or any(w in p.category.lower() for w in query_words)
     ]
 
+    # Specific signals (a named category, a price ceiling, a matched keyword)
+    # win over the generic "what do you sell" browse intent below -- e.g.
+    # "what electronics do you sell" should list Electronics, not the
+    # generic category overview.
     if max_price is not None or category_match or keyword_matches:
         if category_match:
             results = [p for p in catalog if p.category.lower() == category_match.lower()]
@@ -242,6 +254,9 @@ def _fallback_answer(session: Session, question: str) -> StorefrontAgentResponse
         if max_price is not None:
             results = [p for p in results if p.selling_price <= max_price]
         return _fallback_search_results(results[:6])
+
+    if any(k in text for k in _BROWSE_KEYWORDS) or _SELL_VERB_RE.search(text):
+        return _fallback_store_overview(catalog)
 
     if any(k in text for k in _STOCK_KEYWORDS):
         return StorefrontAgentResponse(
@@ -261,6 +276,33 @@ def _fallback_answer(session: Session, question: str) -> StorefrontAgentResponse
 
 def _categories(catalog) -> set[str]:
     return {p.category for p in catalog}
+
+
+def _join_with_and(items: list[str]) -> str:
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
+
+
+def _fallback_store_overview(catalog) -> StorefrontAgentResponse:
+    """Answers "what do you sell"/"tell me about OMNI"-style questions
+    with the real category list (never invented products) and an
+    invitation to narrow down -- this is what a customer sees on first
+    contact, so it should read like a real answer, not a "try again"
+    message."""
+    categories = _join_with_and(sorted(_categories(catalog)))
+    if not categories:
+        return StorefrontAgentResponse(
+            answer="I couldn't load the catalogue right now -- please try again in a moment.",
+            generated_by="fallback",
+        )
+    return StorefrontAgentResponse(
+        answer=(
+            f"OMNI Retail offers a range of everyday lifestyle products across {categories}. "
+            "I can help you find something by category, budget, or product type -- what are you looking for?"
+        ),
+        generated_by="fallback",
+    )
 
 
 def _match_named_product(catalog, text: str):

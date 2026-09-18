@@ -220,9 +220,44 @@ def test_fallback_stock_question_without_a_named_product_asks_for_clarification(
     assert "which product" in result.answer.lower()
 
 
-def test_fallback_generic_browse_question_returns_a_sample(session):
-    result = storefront_agent.answer_shopping_question(session, "what products do you have?")
+@pytest.mark.parametrize(
+    "question",
+    [
+        "what products do you have?",
+        "what lifestyle products you guys sell?",
+        "What you guys sell?",
+        "What do you sell?",
+        "What products do you guys sell?",
+        "Tell me about OMNI Retail",
+        "What categories do you have?",
+        "what do you offer?",
+    ],
+)
+def test_fallback_generic_browse_question_summarizes_real_categories(session, question):
+    result = storefront_agent.answer_shopping_question(session, question)
+    assert result.generated_by == "fallback"
+    assert result.cart_action is None
+    # every category named in the answer must be a real one -- no invented products/categories
+    real_categories = {p.category for p in services.list_products(session)}
+    assert any(c in result.answer for c in real_categories)
+
+
+def test_fallback_category_specific_sell_question_still_filters_to_that_category(session):
+    """A specific category mentioned alongside a sell-verb should win
+    over the generic store-overview response."""
+    result = storefront_agent.answer_shopping_question(session, "what electronics do you sell")
+    assert "Electronics" not in result.answer.split("across")[0]  # not the generic overview sentence
     assert result.suggested_product_ids
+    for pid in result.suggested_product_ids:
+        product = next(p for p in services.list_products(session) if p.product_id == pid)
+        assert product.category == "Electronics"
+
+
+def test_fallback_stock_question_is_not_shadowed_by_the_sell_verb_regex(session):
+    """"stock" must not be treated as a sell-verb -- it has its own,
+    more specific clarification response below."""
+    result = storefront_agent.answer_shopping_question(session, "is it in stock?")
+    assert "which product" in result.answer.lower()
 
 
 def test_fallback_admin_style_question_gets_no_business_data(session):
