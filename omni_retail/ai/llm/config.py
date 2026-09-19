@@ -5,11 +5,21 @@ Follows the same `os.environ.get(...)` convention as
 settings framework. Every setting defaults to "off"/conservative, so an
 unconfigured deployment behaves exactly like Phase 4 (deterministic
 pipeline only, no outbound calls, no new dependency actually invoked).
+
+`load_dotenv()` below reads a local `.env` file (see `.env.example`) into
+`os.environ` if one exists -- it never overrides a variable the process
+environment already set (e.g. a real deployment's own secret manager),
+and does nothing at all if no `.env` is present. `.env` is gitignored;
+only `.env.example`, with placeholder values, is committed.
 """
 
 from __future__ import annotations
 
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
