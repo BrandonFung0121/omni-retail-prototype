@@ -72,7 +72,20 @@ class AnthropicProvider(LLMProvider):
 
 def _to_anthropic_message(turn: ConversationTurn) -> dict[str, Any]:
     if turn.role == "user":
-        return {"role": "user", "content": turn.text}
+        if turn.image is None:
+            return {"role": "user", "content": turn.text}
+        # Image first, then text -- Anthropic's own recommendation for
+        # single-image-plus-question messages, so the model "sees" the
+        # photo before it reads what's being asked about it.
+        content: list[dict[str, Any]] = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": turn.image.media_type, "data": turn.image.data_base64},
+            }
+        ]
+        if turn.text:
+            content.append({"type": "text", "text": turn.text})
+        return {"role": "user", "content": content}
 
     if turn.role == "assistant":
         content: list[dict[str, Any]] = []

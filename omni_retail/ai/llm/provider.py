@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 
 @dataclass
@@ -38,15 +38,28 @@ class ToolResultMessage:
 
 
 @dataclass
+class ImageContent:
+    """A single image attached to a user turn (e.g. a customer's photo
+    for visual product search). `media_type` is a standard image MIME
+    type; `data_base64` is the raw image bytes, base64-encoded, with no
+    `data:` URL prefix."""
+
+    media_type: str
+    data_base64: str
+
+
+@dataclass
 class ConversationTurn:
     """One entry in the provider-agnostic transcript the orchestrator
-    maintains. `role="user"` carries the original question (`text`),
-    `role="assistant"` carries the model's prior reply (`text` and/or
-    `tool_calls`), and `role="tool_results"` carries the outcomes of
-    the tool calls the orchestrator just ran (`tool_results`)."""
+    maintains. `role="user"` carries the original question (`text`,
+    optionally with an `image`), `role="assistant"` carries the model's
+    prior reply (`text` and/or `tool_calls`), and `role="tool_results"`
+    carries the outcomes of the tool calls the orchestrator just ran
+    (`tool_results`)."""
 
     role: Literal["user", "assistant", "tool_results"]
     text: str = ""
+    image: Optional[ImageContent] = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_results: list[ToolResultMessage] = field(default_factory=list)
 

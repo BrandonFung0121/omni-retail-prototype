@@ -15,6 +15,7 @@ import logging
 from omni_retail.ai.llm import config
 from omni_retail.ai.llm.provider import (
     ConversationTurn,
+    ImageContent,
     LLMProvider,
     LLMProviderError,
     LLMTurnResult,
@@ -56,6 +57,7 @@ def get_provider() -> LLMProvider | None:
 
 __all__ = [
     "ConversationTurn",
+    "ImageContent",
     "LLMProvider",
     "LLMProviderError",
     "LLMTurnResult",

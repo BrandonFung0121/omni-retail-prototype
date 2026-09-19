@@ -37,7 +37,7 @@ from omni_retail import services
 from omni_retail.ai.llm import config as llm_config
 from omni_retail.ai.llm import get_provider
 from omni_retail.ai.llm.orchestrator import OrchestrationLimitExceeded, run_tool_loop
-from omni_retail.ai.llm.provider import ConversationTurn, LLMProviderError
+from omni_retail.ai.llm.provider import ConversationTurn, ImageContent, LLMProviderError
 from omni_retail.ai.llm.storefront_tools import dispatch_storefront_tool, get_storefront_tool_schemas
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,12 @@ _BASE_SYSTEM_PROMPT = (
     "You can never place an order, confirm a purchase, or process a payment -- only the customer "
     "can do that, by completing checkout themselves; never claim to have done it for them. "
     "Call add_to_cart only after the customer clearly asks for an item to be added -- never on "
-    "your own initiative. Keep answers short, warm, and conversational."
+    "your own initiative. Keep answers short, warm, and conversational. "
+    "If the customer sends a photo, briefly describe what kind of product it shows (type, "
+    "category, notable features like color or style), then call search_products (and "
+    "get_product_details if useful) to look for real matches in the catalogue -- never claim a "
+    "specific product exists unless a tool result confirmed it. If nothing in the catalogue is a "
+    "reasonable match, say so plainly rather than suggesting an unrelated item as if it were similar."
 )
 
 _MAX_ITERATIONS_CAP = 4
@@ -84,39 +89,68 @@ class StorefrontAgentResponse:
     suggested_product_ids: list[int] = field(default_factory=list)
 
 
+_DEFAULT_IMAGE_QUESTION = "Do you have something like this? What is it, and is anything similar in the catalogue?"
+
+
 def answer_shopping_question(
     session: Session,
     question: str,
     cart: Optional[list[dict[str, Any]]] = None,
+    image: Optional[tuple[str, str]] = None,  # (media_type, base64 data), e.g. from an uploaded photo
 ) -> StorefrontAgentResponse:
     question = (question or "").strip()
     cart = cart or []
 
-    if not question:
+    if not question and image is None:
         return StorefrontAgentResponse(
             answer="Ask me to find a product, check what's in stock, or help you pick between a couple of options.",
             generated_by="fallback",
         )
+    if not question and image is not None:
+        question = _DEFAULT_IMAGE_QUESTION
 
-    if llm_config.is_llm_enabled():
-        provider = get_provider()
-        if provider is not None:
-            try:
-                return _answer_with_llm(provider, session, question, cart)
-            except (LLMProviderError, OrchestrationLimitExceeded) as exc:
-                logger.warning(
-                    "Storefront LLM path unavailable for question %r (%s: %s); falling back to keyword search.",
-                    question,
-                    type(exc).__name__,
-                    exc,
+    provider = get_provider() if llm_config.is_llm_enabled() else None
+
+    if image is not None and provider is None:
+        # Visual search has no non-LLM equivalent -- there's no honest
+        # keyword-based way to "look at" a photo, so this says so plainly
+        # rather than attempting something that would just be guessing.
+        return StorefrontAgentResponse(
+            answer=(
+                "Photo search needs the AI Shopping Assistant, which isn't available right now. "
+                "Try describing what you're looking for in words instead -- e.g. \"black wireless headphones\"."
+            ),
+            generated_by="fallback",
+        )
+
+    if provider is not None:
+        try:
+            return _answer_with_llm(provider, session, question, cart, image)
+        except (LLMProviderError, OrchestrationLimitExceeded) as exc:
+            logger.warning(
+                "Storefront LLM path unavailable for question %r (%s: %s); falling back to keyword search.",
+                question,
+                type(exc).__name__,
+                exc,
+            )
+            if image is not None:
+                # No fallback exists for a photo -- retrying as a
+                # keyword search would search on the placeholder
+                # question text, not what's actually in the image.
+                return StorefrontAgentResponse(
+                    answer="Sorry, I couldn't process that photo right now. Please try again, or describe what you're looking for in words.",
+                    generated_by="fallback",
                 )
 
     return _fallback_answer(session, question)
 
 
-def _answer_with_llm(provider, session: Session, question: str, cart: list[dict[str, Any]]) -> StorefrontAgentResponse:
+def _answer_with_llm(
+    provider, session: Session, question: str, cart: list[dict[str, Any]], image: Optional[tuple[str, str]] = None
+) -> StorefrontAgentResponse:
     system_prompt = _build_system_prompt(session, cart)
-    transcript = [ConversationTurn(role="user", text=question)]
+    turn_image = ImageContent(media_type=image[0], data_base64=image[1]) if image else None
+    transcript = [ConversationTurn(role="user", text=question, image=turn_image)]
 
     result = run_tool_loop(
         provider,

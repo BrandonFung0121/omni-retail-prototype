@@ -172,7 +172,8 @@ def assistant_ask(request: StorefrontAskRequest, session: Session = Depends(get_
     ai/llm/storefront_tools.py for the separate, customer-scoped path.
     """
     cart_items = [item.model_dump() for item in request.cart]
-    result = answer_shopping_question(session, request.question, cart=cart_items)
+    image = (request.image.media_type, request.image.data) if request.image else None
+    result = answer_shopping_question(session, request.question, cart=cart_items, image=image)
 
     cart_action = (
         CartActionOut(

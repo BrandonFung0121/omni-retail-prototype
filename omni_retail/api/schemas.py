@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class RevenueResponse(BaseModel):
@@ -316,9 +316,37 @@ class RejectActionRequest(BaseModel):
     reason: str | None = None
 
 
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB raw; base64 text is checked with the equivalent margin
+
+
+class ImageIn(BaseModel):
+    media_type: str
+    data: str  # base64-encoded image bytes, no "data:...;base64," prefix
+
+    @field_validator("media_type")
+    @classmethod
+    def _validate_media_type(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in _ALLOWED_IMAGE_TYPES:
+            raise ValueError(f"Unsupported image type {value!r}. Use JPEG, PNG, or WebP.")
+        return "image/jpeg" if normalized == "image/jpg" else normalized
+
+    @field_validator("data")
+    @classmethod
+    def _validate_size(cls, value: str) -> str:
+        # base64 expands data by ~4/3; comparing against that bound avoids
+        # decoding (and thus fully materializing) an oversized payload just
+        # to reject it.
+        if len(value) > _MAX_IMAGE_BYTES * 4 // 3:
+            raise ValueError("Image is too large -- please use a photo under 5MB.")
+        return value
+
+
 class StorefrontAskRequest(BaseModel):
-    question: str
+    question: str = ""
     cart: list[CartItemIn] = []
+    image: ImageIn | None = None
 
 
 class CartActionOut(BaseModel):

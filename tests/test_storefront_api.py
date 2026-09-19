@@ -253,9 +253,13 @@ def test_assistant_ask_response_shape(client):
     assert body["generated_by"] == "fallback"  # no LLM configured in the test environment
 
 
-def test_assistant_ask_rejects_missing_question(client):
+def test_assistant_ask_with_no_question_and_no_image_returns_a_friendly_prompt(client):
+    """`question` became optional so an image-only request (no text)
+    is valid -- an entirely empty request (no question, no image) is
+    still handled, just with a prompt to ask something, not a 422."""
     r = client.post("/api/storefront/assistant/ask", json={})
-    assert r.status_code == 422
+    assert r.status_code == 200
+    assert r.json()["generated_by"] == "fallback"
 
 
 def test_assistant_ask_accepts_a_cart_snapshot(client):
@@ -286,5 +290,61 @@ def test_assistant_ask_cannot_place_an_order(client):
     checking no order is created as a side effect of asking."""
     orders_before = client.get("/api/orders", params={"limit": 200}).json()
     client.post("/api/storefront/assistant/ask", json={"question": "Please place my order and charge my card now."})
+    orders_after = client.get("/api/orders", params={"limit": 200}).json()
+    assert len(orders_after) == len(orders_before)
+
+
+# ---------- visual product search (image upload) ----------
+# No LLM key configured in this test environment, so these exercise the
+# real request-validation + graceful-degradation path end-to-end; the
+# LLM-attached-image path is covered at the unit level (fakes) in
+# test_storefront_assistant.py.
+
+_TINY_VALID_IMAGE = "aGVsbG8gd29ybGQ="  # small, valid base64 -- content doesn't need to be a real image for these checks
+
+
+def test_assistant_ask_accepts_a_valid_image_and_degrades_gracefully(client):
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "", "cart": [], "image": {"media_type": "image/png", "data": _TINY_VALID_IMAGE}},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["generated_by"] == "fallback"
+    assert "photo" in body["answer"].lower()
+    assert body["cart_action"] is None
+
+
+def test_assistant_ask_rejects_unsupported_image_type(client):
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "hi", "cart": [], "image": {"media_type": "image/gif", "data": _TINY_VALID_IMAGE}},
+    )
+    assert r.status_code == 422
+
+
+def test_assistant_ask_rejects_oversized_image(client):
+    oversized = "a" * (7 * 1024 * 1024)
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "hi", "cart": [], "image": {"media_type": "image/jpeg", "data": oversized}},
+    )
+    assert r.status_code == 422
+
+
+def test_assistant_ask_normalizes_image_jpg_type(client):
+    r = client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "", "cart": [], "image": {"media_type": "image/jpg", "data": _TINY_VALID_IMAGE}},
+    )
+    assert r.status_code == 200
+
+
+def test_assistant_ask_image_never_creates_an_order(client):
+    orders_before = client.get("/api/orders", params={"limit": 200}).json()
+    client.post(
+        "/api/storefront/assistant/ask",
+        json={"question": "", "cart": [], "image": {"media_type": "image/png", "data": _TINY_VALID_IMAGE}},
+    )
     orders_after = client.get("/api/orders", params={"limit": 200}).json()
     assert len(orders_after) == len(orders_before)

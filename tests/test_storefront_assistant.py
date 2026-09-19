@@ -281,3 +281,90 @@ def test_empty_question_returns_a_safe_prompt_without_touching_the_llm(session, 
     result = storefront_agent.answer_shopping_question(session, "   ")
     assert result.generated_by == "fallback"
     assert result.answer
+
+
+# ---------- visual product search (image upload) ----------
+
+_FAKE_IMAGE = ("image/jpeg", "ZmFrZSBpbWFnZSBieXRlcw==")
+
+
+def test_image_is_attached_to_the_first_transcript_turn(session, monkeypatch):
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: True)
+    provider = FakeLLMProvider(
+        [
+            LLMTurnResult(stop_reason="tool_use", tool_calls=[ToolCall(id="1", name="search_products", arguments={"query": "headphones"})]),
+            LLMTurnResult(stop_reason="end_turn", text="That looks like headphones -- we have some!"),
+        ]
+    )
+    monkeypatch.setattr(storefront_agent, "get_provider", lambda: provider)
+
+    result = storefront_agent.answer_shopping_question(session, "Do you have this?", image=_FAKE_IMAGE)
+
+    assert result.generated_by == "llm"
+    user_turn = provider.calls[0][1][0]
+    assert user_turn.image is not None
+    assert user_turn.image.media_type == "image/jpeg"
+    assert user_turn.image.data_base64 == _FAKE_IMAGE[1]
+
+
+def test_image_with_no_question_uses_a_default_prompt(session, monkeypatch):
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: True)
+    provider = FakeLLMProvider([LLMTurnResult(stop_reason="end_turn", text="Here's what I found.")])
+    monkeypatch.setattr(storefront_agent, "get_provider", lambda: provider)
+
+    storefront_agent.answer_shopping_question(session, "", image=_FAKE_IMAGE)
+
+    user_turn = provider.calls[0][1][0]
+    assert user_turn.text  # a real default question was substituted, not sent empty
+
+
+def test_image_without_llm_returns_a_clear_unavailable_message_not_a_guess(session, monkeypatch):
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: False)
+    result = storefront_agent.answer_shopping_question(session, "Do you have this?", image=_FAKE_IMAGE)
+    assert result.generated_by == "fallback"
+    assert result.cart_action is None
+    assert result.suggested_product_ids == []
+    assert "photo" in result.answer.lower()
+
+
+def test_image_when_provider_unconfigured_also_degrades_gracefully(session, monkeypatch):
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: True)
+    monkeypatch.setattr(storefront_agent, "get_provider", lambda: None)
+    result = storefront_agent.answer_shopping_question(session, "Do you have this?", image=_FAKE_IMAGE)
+    assert result.generated_by == "fallback"
+    assert "photo" in result.answer.lower()
+
+
+def test_image_on_orchestration_limit_exceeded_does_not_fall_back_to_keyword_search(session, monkeypatch):
+    """A failed image request must not retry as a text keyword search
+    against the placeholder question -- that would silently ignore
+    what the customer actually asked about."""
+    monkeypatch.setenv("OMNI_LLM_MAX_ITERATIONS", "1")
+    monkeypatch.setenv("OMNI_LLM_MAX_TOOL_CALLS", "1")
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: True)
+    monkeypatch.setattr(storefront_agent, "get_provider", lambda: RepeatingToolCallProvider("search_products"))
+
+    result = storefront_agent.answer_shopping_question(session, "Do you have this?", image=_FAKE_IMAGE)
+
+    assert result.generated_by == "fallback"
+    assert "photo" in result.answer.lower()
+    assert result.suggested_product_ids == []
+
+
+def test_image_finds_suggested_products_via_the_same_extraction_as_text_search(session, monkeypatch):
+    product = _healthy_product(session)
+    monkeypatch.setattr(storefront_agent.llm_config, "is_llm_enabled", lambda: True)
+    provider = FakeLLMProvider(
+        [
+            LLMTurnResult(
+                stop_reason="tool_use",
+                tool_calls=[ToolCall(id="1", name="get_product_details", arguments={"product_id": product.product_id})],
+            ),
+            LLMTurnResult(stop_reason="end_turn", text="This looks similar to what's in your photo."),
+        ]
+    )
+    monkeypatch.setattr(storefront_agent, "get_provider", lambda: provider)
+
+    result = storefront_agent.answer_shopping_question(session, "", image=_FAKE_IMAGE)
+
+    assert result.suggested_product_ids == [product.product_id]
